@@ -1,0 +1,19 @@
+# Local secrets and databases are never committed to GitHub
+.env
+.env.*
+!.env.example
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+node_modules/
+.npm/
+coverage/
+playwright-report/
+*.log
+.DS_Store
+Thumbs.db
+
+# Disposable test profiles and screenshots
+.tools/
+__pycache__/

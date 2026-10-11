@@ -1,0 +1,19 @@
+{
+  "name": "buildledger-web",
+  "version": "7.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Accessible construction finance website with persistent local SQLite REST API and document vault",
+  "engines": { "node": ">=22.13.0 <25.0.0" },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "setup:secure": "node scripts/setup.mjs --secure",
+    "dev": "node --env-file-if-exists=.env server/http.mjs",
+    "start": "node --env-file-if-exists=.env server/http.mjs",
+    "test": "node --test tests/*.test.mjs tests/server/*.test.mjs",
+    "local": "node dev-server.mjs"
+  },
+  "optionalDependencies": {
+    "mongodb": "^6.21.0"
+  }
+}

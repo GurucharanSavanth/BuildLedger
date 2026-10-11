@@ -1,0 +1,42 @@
+name: BuildLedger regression tests
+on:
+  push:
+  pull_request:
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - name: Check JavaScript syntax
+        run: |
+          node --check app.js
+          node --check finance.js
+          node --check hierarchy.js
+          node --check server/http.mjs
+      - name: Run finance, archive and SQLite integration tests
+        run: npm test
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser test tools
+        run: python -m pip install selenium==4.47.0
+      - name: Test real browser and disposable SQLite
+        env:
+          BUILDLEDGER_TEST_DISPOSABLE: '1'
+        run: |
+          node scripts/browser-test-server.mjs &
+          server_pid=$!
+          trap 'kill "$server_pid"; wait "$server_pid" || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8099/api/v1/health; then break; fi
+            sleep 1
+          done
+          python tests/browser_regressions.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-layouts
+          path: .tools/*.png
