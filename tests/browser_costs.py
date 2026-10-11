@@ -61,7 +61,12 @@ try:
     driver.refresh();wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.kpis')))
     flow('other')
     fill('#f-vendor', 'V8 Supplier');fill('#f-title', 'Connection fee');fill('#f-amount', '125.50')
-    classify('cost-09', 'cost-09-02');select('#f-payStatus', 'unpaid');save()
+    assert '125.50' in driver.find_element(By.ID, 'entry-preview').text
+    fill('.classification-search', 'Connection charges')
+    click('[data-pick-cost=cost-09-02]')
+    assert driver.find_element(By.CSS_SELECTOR, '[data-cost=costHeadId]').get_attribute('value') == 'cost-09'
+    assert driver.find_element(By.CSS_SELECTOR, '[data-cost=costSubheadId]').get_attribute('value') == 'cost-09-02'
+    select('#f-payStatus', 'unpaid');save()
     assert snapshot()['bills'][-1]['lines'][0]['costHeadId'] == 'cost-09'
 
     flow('purchase')
@@ -94,7 +99,9 @@ try:
     for key, value in [('extras', '10'), ('tax', '5'), ('discount', '2')]:
         element = driver.find_element(By.CSS_SELECTOR, '#f-' + key)
         if not element.is_displayed():
-            element.find_element(By.XPATH, 'ancestor::details').find_element(By.TAG_NAME, 'summary').click()
+            summary = element.find_element(By.XPATH, 'ancestor::details').find_element(By.TAG_NAME, 'summary')
+            driver.execute_script("arguments[0].scrollIntoView({block:'center',behavior:'instant'});", summary)
+            summary.click()
         fill('#f-' + key, value)
     select('#f-payStatus', 'unpaid');click('#entry-form button[type=submit]')
     assert 'Transport appears' in driver.find_element(By.CSS_SELECTOR, '#modal-inner').text
@@ -106,6 +113,7 @@ try:
         click('.h-row[data-cost-path]')
     click('.hierarchy-panel [data-detail^="bill:"]')
     before = snapshot();click('[data-action=edit-entry]')
+    assert len(driver.find_elements(By.CSS_SELECTOR, 'form[data-form=edit-entry] [data-cost=costHeadId]')) == len(driver.find_elements(By.CSS_SELECTOR, '.edit-line'))
     Select(driver.find_element(By.CSS_SELECTOR, '.edit-line [data-cost=costNature]')).select_by_visible_text('Labour')
     click('form[data-form=edit-entry] button[type=submit]')
     wait.until(EC.invisibility_of_element_located((By.CSS_SELECTOR, '#modal')))
@@ -149,7 +157,11 @@ try:
     flow('contract');fill('#f-vendor', 'V8 Quoted Builder');fill('#f-title', 'Explicit SQ quotation');fill('#f-count', '16')
     driver.find_element(By.CSS_SELECTOR, '#f-calculate').find_element(By.XPATH, 'ancestor::details').find_element(By.TAG_NAME, 'summary').click()
     select('#f-calculate', 'calculated');fill('#f-calcQty', '100');fill('#f-calcRate', '38500')
-    select('#f-unitId', 'sq100');select('#f-quantityUnitId', 'sqft');fill('#f-multiplier', '1.5');save()
+    select('#f-unitId', 'sq100');select('#f-quantityUnitId', 'sqft');fill('#f-multiplier', '1.5')
+    assert '57,750' in driver.find_element(By.ID, 'entry-preview').text
+    assert 'Multiplier 1.5' in driver.find_element(By.ID, 'entry-preview').text
+    fill('#f-multiplier', '0');assert 'Check the amount' in driver.find_element(By.ID, 'entry-preview').text
+    fill('#f-multiplier', '1.5');save()
     quoted = snapshot();agreement = quoted['contracts'][-1]
     assert agreement['amount'] == 5775000 and agreement['calculation']['multiplier'] == '1.5'
     assert sum(p['amount'] for p in quoted['plans'] if p.get('contractId') == agreement['id']) == 5775000
@@ -159,6 +171,31 @@ try:
     assert driver.execute_script('return document.activeElement.tagName') in ['INPUT', 'SELECT', 'BUTTON']
     assert driver.execute_script('return document.documentElement.scrollWidth<=window.innerWidth')
     driver.save_screenshot(str(artifacts / 'cost-entry-mobile.png'))
+    driver.set_window_size(1440, 1100)
+    click('#rail-nav [data-nav=home]')
+    driver.save_screenshot(str(artifacts / 'refined-dashboard-desktop.png'))
+    click('[data-action=unpaid]')
+    assert driver.find_element(By.ID, 'activity-status').get_attribute('value') == 'unpaid'
+    select('#activity-head', 'cost-09')
+    assert 'BWSSB' in driver.find_element(By.CSS_SELECTOR, '#activity-head option:checked').text
+    assert driver.find_elements(By.CSS_SELECTOR, '.activity-row')
+    click('[data-action=clear-activity]')
+    fill('#activity-search', 'Connection fee')
+    assert driver.find_elements(By.CSS_SELECTOR, '.activity-row')
+    click('[data-action=clear-activity]')
+    driver.execute_async_script("""
+      const done=arguments[0];Promise.all([import('./db.js'),import('./finance.js')]).then(async([db,f])=>{
+        await db.modify(s=>{for(let i=0;i<155;i++)s.bills.push(f.makeBill({title:'Older record '+i,vendor:'Pagination fixture',date:'2025-01-01',lines:[{label:'Archive test '+i,mode:'amount',directAmountPaise:100}]}))});done();
+      }).catch(e=>done(e.message));
+    """)
+    driver.refresh();wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.kpis')))
+    click('#rail-nav [data-nav=activity]');fill('#activity-search', 'Pagination fixture')
+    assert len(driver.find_elements(By.CSS_SELECTOR, '.activity-row')) == 75
+    click('[data-action=activity-more]');assert len(driver.find_elements(By.CSS_SELECTOR, '.activity-row')) == 150
+    click('[data-action=activity-more]');assert len(driver.find_elements(By.CSS_SELECTOR, '.activity-row')) == 155
+    click('#rail-nav [data-nav=explore]');click('[data-view=cost]');fill('#cost-search', 'no such category anywhere')
+    assert 'No matching costs' in driver.find_element(By.CSS_SELECTOR, 'main').text
+    assert not driver.find_elements(By.CSS_SELECTOR, '[data-action=hierarchy-more]')
     if os.environ.get('BUILDLEDGER_TEST_LOCAL_URL'):
         driver.get(os.environ['BUILDLEDGER_TEST_LOCAL_URL'])
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.kpis')))
@@ -180,6 +217,6 @@ try:
         assert any(b['id'] == result['id'] and b['lines'][0]['costHeadId'] == 'cost-03' for b in persisted['bills'])
     errors = [e for e in driver.get_log('browser') if e['level'] == 'SEVERE' and not (e['source'] == 'network' and '/api/v1/health' in e['message'] and '404' in e['message'])]
     assert not errors, json.dumps(errors)
-    print('PASS V8 direct classification, reset, multiline, bathroom/SQ multiplier, source drill, audited edit, category archive, mobile keyboard')
+    print('PASS direct classification/search, exact preview/errors, multiline, bathroom/SQ multiplier, source drill/edit, category archive, activity filters/155-record pagination, mobile keyboard')
 finally:
     driver.quit()

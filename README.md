@@ -104,3 +104,11 @@ The preview server serves frontend assets only. Replacement restores require a v
 CI runs `tests/browser_regressions.py` against a new disposable SQLite database. The test covers lost save replies, failed refreshes, reload recovery, SVG backup restoration, audited Edit/Delete, and desktop/mobile chart layout. It uses Selenium only for testing; no frontend or server dependency was added.
 
 For local testing, install `selenium==4.47.0`, start `node scripts/browser-test-server.mjs`, set `BUILDLEDGER_TEST_DISPOSABLE=1`, and run `python tests/browser_regressions.py`. Optional `BUILDLEDGER_TEST_CHROME` and `BUILDLEDGER_TEST_DRIVER` select installed Chrome and ChromeDriver binaries. Screenshots are written under `.tools/`.
+
+### Faster expense entry and finding records (8.1)
+
+Search **Find a category** to select a complete category path. The live preview shows the recorded bill cost separately from money paid and the remaining balance. Optional calculators use the same exact paise helpers as posting; the final review remains required. Possible duplicate invoices produce a review warning, not an automatic merge or deletion.
+
+Activity includes unpaid, unclassified, overdue-plan and settled filters, cost-head selection, date ranges, and matching-record totals. Cost-head matching includes classified agreements and plans; bill totals represent whole matching invoices. Use Explore for individual classified line costs. **Show 75 more** reaches older records, and **Clear filters** resets the view. CSV export still exports all records and is labeled accordingly.
+
+Both browser scripts are regression checks against disposable data: `python tests/browser_regressions.py` and `python tests/browser_costs.py`. Use a newly started disposable server for independent reruns; the cost fixture inserts 155 pagination-test bills and is not intended for a real project database. CI runs the recovery suite followed by the cost suite. No database or encrypted-backup migration is needed for 8.1.

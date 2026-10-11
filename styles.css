@@ -151,3 +151,17 @@ h2{font-weight:630;letter-spacing:-.4px;font-size:19px}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important}}
 
 .cost-fields{grid-column:1/-1;margin-bottom:14px;grid-template-columns:repeat(2,minmax(0,1fr))}.cost-fields label{font-size:14px;color:var(--ink)}.cost-fields select,.cost-manage-row input:not([type=checkbox]){min-height:48px;width:100%;border:1px solid #cbd6e0;border-radius:8px;padding:9px}.cost-manage-row{display:grid;grid-template-columns:minmax(0,1fr) 80px 90px 70px;gap:10px;align-items:end;padding:12px 0;border-bottom:1px solid var(--line)}.cost-manage-row label{display:grid;gap:5px;font-size:13px}.cost-manage-row input[type=checkbox]{width:22px;height:22px}.cost-fields select{min-width:0}.line-grid input,.line-grid select{min-height:48px}@media(max-width:600px){.cost-fields{grid-template-columns:1fr}.cost-manage-row{grid-template-columns:minmax(0,1fr) 70px}.cost-manage-row label:first-child{grid-column:1/-1}}
+
+/* Readable financial previews and searchable classifications. */
+.entry-preview{display:grid;gap:7px;padding:18px;border:1px solid #bddbcc;border-radius:12px;background:#f3faf6;color:#224b3c}
+.entry-preview>strong{font-size:28px;font-variant-numeric:tabular-nums}.entry-preview>span,.entry-preview>small{font-size:14px}
+.cost-fields .cost-search-label{grid-column:1/-1}.cost-search-results{display:grid;gap:6px;max-height:260px;overflow:auto;padding:5px 0}
+.category-result{text-align:left;padding:11px 12px;min-height:44px;border:1px solid var(--line);border-radius:8px;background:#f8fafc;color:var(--ink);font-size:14px}
+.category-result:hover{background:var(--blue-soft)}.date-filter{display:grid;gap:3px;color:var(--muted);font-size:13px}
+.result-summary{display:flex;flex-wrap:wrap;gap:12px 24px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;margin-bottom:16px;background:#f8fafc;font-size:14px}
+.result-summary strong{font-variant-numeric:tabular-nums}.cost-fields label,.mini,.list-row small,.hint{font-size:14px}
+.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}.kpi strong,.kpi:not(.hero) strong{font-size:25px}.cost-fields input[type=search]{min-height:46px}
+@media(max-width:1050px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi.hero{grid-column:auto}}
+@media(max-width:750px){.kpi strong,.kpi:not(.hero) strong{font-size:22px}.result-summary{display:grid;grid-template-columns:1fr}.filter-row select,.filter-row .search{max-width:100%;min-width:0}.filter-row .search{flex-basis:100%}.entry-preview>strong{font-size:25px}.page-head{flex-wrap:wrap}}
+
+.mini,.hint,.list-row small,.event-copy small,.kpi .sub,.info-note{font-size:13px}.event-copy strong,.list-row strong{font-size:15px}.filter-row input,.filter-row select{font-size:14px}.btn.small{min-height:44px;font-size:13px}.entry-preview.error{background:#fff2f3;color:#ad3443;border-color:#f0c7cc}

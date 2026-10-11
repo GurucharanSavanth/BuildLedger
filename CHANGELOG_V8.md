@@ -11,3 +11,15 @@
 - Added targeted catalog, financial, analytics, storage, export, Mongo collection-contract and real-browser regressions. Updated CI to check new modules and run V8 browser scenarios.
 
 No prices, statutory charges, density assumptions or automatic historical classifications were introduced. No live database, `.env`, credentials or deployment was changed. See the implementation report for exact verification and limitations.
+
+## 8.1 — daily-use refinements
+
+- Search expense categories and select a complete head/subhead/item path without traversing long dropdowns; archived ancestors are excluded from new search choices.
+- Preview exact bill totals, applied multipliers, charges, cash paid now and remaining due while entering amounts. Supplier suggestions reduce repeated typing.
+- Warn before saving a possible duplicate invoice; deliberate repeat expenses remain possible.
+- Filter Activity by settlement status and cost head, search item descriptions/invoice/location/category, inspect distinct cost/cash/unpaid totals, clear filters and progressively reveal older records beyond 150.
+- Surface unclassified costs on Home and open unpaid bills directly from the dashboard. Cost filters also find classified agreements and instalments.
+- Remove the ineffective document-level selector from line-invoice edits, label completed calendar instalments correctly, and provide cost-search empty states.
+- Improve readable type, touch targets, mobile filters and financial previews; refresh the offline asset cache.
+- Keep zero-value invoice lines out of rounding remainder allocations. Original bill/payment amounts are unchanged; historical derived category allocations can shift by the rounding remainder where a free last line previously received it.
+- Replace repeated financial-validation settlement scans with exact per-call indexed totals while retaining recipient, reference, overpayment and overflow checks.
