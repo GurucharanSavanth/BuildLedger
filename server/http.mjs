@@ -92,9 +92,20 @@ export async function run(){
   const {MongoStore}=await import('./mongo-store.mjs');store=new MongoStore(process.env.MONGODB_URI,process.env.MONGODB_DB||'buildledger');
  }else throw Error('Unsupported DATABASE_MODE: '+mode);
  await store.start();const host=process.env.HOST||'127.0.0.1',port=Number(process.env.PORT||8080);
- const app=createHttpApp({store,password,secret,storeMode:mode,authMode,host});
+ let app;
+ try{
+  app=createHttpApp({store,password,secret,storeMode:mode,authMode,host});
+  await new Promise((resolve,reject)=>{
+   app.once('error',reject);
+   app.listen(port,host,()=>{app.removeListener('error',reject);resolve()});
+  });
+ }catch(error){
+  await store.close();
+  if(error.code==='EADDRINUSE')throw Error(`Port ${port} on ${host} is already in use. If BuildLedger is already running, open http://${host}:${port}. Otherwise stop the process using that port or choose a different PORT.`);
+  throw error;
+ }
  const prune=setInterval(()=>store.removeOrphans().catch(e=>console.error('Cleanup error:',e.message)),6*3600*1000);prune.unref();
- app.listen(port,host,()=>console.log(`BuildLedger (${mode}, ${authMode==='local'?'no login / local only':'owner login'}) listening at http://${host}:${port}`));
+ console.log(`BuildLedger (${mode}, ${authMode==='local'?'no login / local only':'owner login'}) listening at http://${host}:${app.address().port}`);
  for(const signal of ['SIGTERM','SIGINT'])process.once(signal,()=>app.close(()=>{clearInterval(prune);Promise.resolve(store.close()).then(()=>process.exit(0))}));
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){run().catch(e=>{console.error('Startup failed:',e.message);process.exit(1)})}
