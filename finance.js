@@ -1,9 +1,22 @@
 /* All posted monetary values are integer paise, never floating-point currency. */
+import {costCatalog,validateCostCatalog,validateClassification,seedCostCatalog,UNITS} from './cost-catalog.js';
 export const uid=()=>{if(typeof crypto.randomUUID==='function')return crypto.randomUUID();const r=crypto.getRandomValues(new Uint8Array(16));r[6]=(r[6]&15)|64;r[8]=(r[8]&63)|128;const h=[...r].map(x=>x.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`};
 export function paise(input){const v=String(input??'').trim().replace(/,/g,'');if(!/^\d{1,12}(\.\d{1,2})?$/.test(v))throw Error('Enter a valid amount, with up to two decimal places.');const [a,b='']=v.split('.');const n=BigInt(a)*100n+BigInt((b+'00').slice(0,2));if(n>BigInt(Number.MAX_SAFE_INTEGER))throw Error('The amount is too large.');return Number(n)}
 export function qtyScaled(input){const v=String(input??'').trim();if(!/^\d{1,9}(\.\d{1,3})?$/.test(v))throw Error('Enter a quantity with up to three decimal places.');const [a,b='']=v.split('.');return BigInt(a)*1000n+BigInt((b+'000').slice(0,3))}
-export function lineTotal(quantity,unitRate){const q=qtyScaled(quantity);if(q<=0n)throw Error('Quantity must be greater than zero.');const n=(q*BigInt(paise(unitRate))+500n)/1000n;if(n>BigInt(Number.MAX_SAFE_INTEGER))throw Error('The calculated amount is too large.');return Number(n)}
-export function lineValue(l){if(l.mode==='amount'||l.directAmountPaise!==undefined){if(!Number.isSafeInteger(l.directAmountPaise)||l.directAmountPaise<0)throw Error('Invalid direct item amount');return l.directAmountPaise}return lineTotal(l.qty,l.rate)}
+export function lineTotal(quantity,unitRate,{multiplier='1',quantityUnitId,unitId}={}){
+ for(const id of [unitId,quantityUnitId])if(id&&!UNITS.some(u=>u.id===id))throw Error('Unknown calculation unit.');
+ const q=qtyScaled(quantity),m=qtyScaled(multiplier);if(q<=0n)throw Error('Quantity must be greater than zero.');if(m<=0n)throw Error('Multiplier must be greater than zero.');
+ let numerator=q*BigInt(paise(unitRate))*m,denominator=1000000n;
+ if(quantityUnitId&&quantityUnitId!==unitId){
+  if(quantityUnitId==='sqft'&&unitId==='sq100')denominator*=100n;
+  else if(quantityUnitId==='kg'&&unitId==='tonne')denominator*=1000n;
+  else if(quantityUnitId==='tonne'&&unitId==='kg')numerator*=1000n;
+  else throw Error('Unsupported unit conversion.');
+ }
+ // Round half up once, at the posted line-item paise boundary.
+ const n=(numerator+denominator/2n)/denominator;if(n>BigInt(Number.MAX_SAFE_INTEGER))throw Error('The calculated amount is too large.');return Number(n);
+}
+export function lineValue(l){if(l.mode==='amount'||l.directAmountPaise!==undefined){if(!Number.isSafeInteger(l.directAmountPaise)||l.directAmountPaise<0)throw Error('Invalid direct item amount');return l.directAmountPaise}return lineTotal(l.qty,l.rate,l)}
 export function displayMoney(v=0){if(!Number.isSafeInteger(v))throw Error('Unsafe currency value for display');const n=BigInt(v),a=n<0n?-n:n;const whole=a/100n,cents=a%100n;return (n<0n?'−':'')+'₹'+whole.toLocaleString('en-IN')+(cents?'.'+String(cents).padStart(2,'0'):'')}
 export function inputMoney(v=0){if(!Number.isSafeInteger(v))throw Error('Unsafe currency value for input');const n=BigInt(v),a=n<0n?-n:n;return (n<0n?'-':'')+String(a/100n)+'.'+String(a%100n).padStart(2,'0')}
 export function safeInt(n){if(!Number.isSafeInteger(n)||Math.abs(n)>Number.MAX_SAFE_INTEGER)throw Error('Unsafe financial total.');return n}
@@ -11,8 +24,24 @@ export function add(a,b){return safeInt(a+b)}
 export const sum=arr=>arr.reduce((x,y)=>add(x,y),0);
 export function billTotal(lines,extras=0,tax=0,discount=0){const base=sum(lines.map(l=>lineValue(l)));const v=add(add(base,extras),tax)-discount;return safeInt(v)}
 export function proportional(total,weights){if(!weights.length)return [];if(weights.some(w=>!Number.isSafeInteger(w)||w<0))throw Error('Invalid allocation weights');const wsum=sum(weights);if(!wsum){return [total,...weights.slice(1).map(()=>0)]}let allocated=0;return weights.map((w,i)=>{if(i===weights.length-1)return total-allocated;let n=Number(BigInt(total)*BigInt(w)/BigInt(wsum));allocated=add(allocated,n);return n})}
-export function emptyState(){return {schema:1,project:{name:'My House Construction',budget:0,currency:'INR'},bills:[],payments:[],allocations:[],plans:[],contracts:[],entries:[],files:[],audit:[],settings:{lastBackupAt:null},rev:0}}
-export function verifyState(s){if(!s||s.schema!==1)throw Error('Unsupported or damaged backup version.');for(const key of ['bills','payments','allocations','plans','contracts','entries','files','audit'])if(!Array.isArray(s[key]))throw Error('Backup missing '+key);if(!s.project||typeof s.project.name!=='string')throw Error('Project settings missing');const unique=(list,name)=>{const ids=new Set();for(const r of list){if(!r.id||ids.has(r.id))throw Error(`Duplicate ${name} ID`);ids.add(r.id)}return ids};const bills=unique(s.bills,'bill'),pays=unique(s.payments,'payment'),plans=unique(s.plans,'plan'),files=unique(s.files,'file');unique(s.allocations,'allocation');unique(s.entries,'entry');unique(s.contracts,'contract');unique(s.audit,'audit');for(const r of [...s.bills,...s.payments,...s.entries])if(r.date!==undefined&&!validDate(r.date))throw Error('Invalid entry date');for(const p of s.plans)if(!validDate(p.due))throw Error('Invalid planned date');for(const b of s.bills)if(!Number.isSafeInteger(b.total)||b.total<=0)throw Error('Invalid bill amount');for(const p of s.payments){if(!Number.isSafeInteger(p.amount)||p.amount<=0)throw Error('Invalid payment amount');if(p.planId&&!plans.has(p.planId))throw Error('Missing linked plan')}for(const x of s.allocations){if(!pays.has(x.paymentId)||!bills.has(x.billId)||!Number.isSafeInteger(x.amount)||x.amount<=0)throw Error('Invalid payment allocation')}for(const a of s.allocations){const p=s.payments.find(p=>p.id===a.paymentId),b=s.bills.find(b=>b.id===a.billId);if(p.vendor&&b.vendor&&String(p.vendor).trim().toLowerCase()!==String(b.vendor).trim().toLowerCase())throw Error('Payment recipient does not match bill vendor')}for(const p of s.payments){const plan=s.plans.find(t=>t.id===p.planId);if(plan&&p.vendor&&plan.vendor&&String(p.vendor).trim().toLowerCase()!==String(plan.vendor).trim().toLowerCase())throw Error('Payment recipient differs from linked instalment recipient')}for(const p of s.payments)if(sum(s.allocations.filter(a=>a.paymentId===p.id).map(a=>a.amount))>p.amount)throw Error('Payment is overallocated');for(const b of s.bills)if(sum(s.allocations.filter(a=>a.billId===b.id).map(a=>a.amount))>b.total)throw Error('Bill is overpaid');for(const t of s.plans)if(!Number.isSafeInteger(t.amount)||t.amount<=0)throw Error('Invalid planned amount');for(const t of s.plans)if(sum(s.payments.filter(p=>p.planId===t.id).map(p=>p.amount))>t.amount)throw Error('Plan is overpaid');for(const b of s.bills){if(b.lines?.length){for(const l of b.lines)if(l.value!==lineValue(l))throw Error('Bill has inconsistent line-item value');if(billTotal(b.lines,b.extras||0,b.tax||0,b.discount||0)!==b.total)throw Error('Bill line totals do not reconcile')}}for(const f of s.files)if(!f.id||typeof f.sha256!=='string'||!/^[a-f0-9]{64}$/.test(f.sha256))throw Error('Invalid file metadata');return true}
+export function emptyState(){return {schema:1,project:{name:'My House Construction',budget:0,currency:'INR'},bills:[],payments:[],allocations:[],plans:[],contracts:[],entries:[],files:[],audit:[],settings:{lastBackupAt:null,costCatalog:seedCostCatalog()},rev:0}}
+function verifyFinancialState(s){if(!s||s.schema!==1)throw Error('Unsupported or damaged backup version.');for(const key of ['bills','payments','allocations','plans','contracts','entries','files','audit'])if(!Array.isArray(s[key]))throw Error('Backup missing '+key);if(!s.project||typeof s.project.name!=='string')throw Error('Project settings missing');const unique=(list,name)=>{const ids=new Set();for(const r of list){if(!r.id||ids.has(r.id))throw Error(`Duplicate ${name} ID`);ids.add(r.id)}return ids};const bills=unique(s.bills,'bill'),pays=unique(s.payments,'payment'),plans=unique(s.plans,'plan'),files=unique(s.files,'file');unique(s.allocations,'allocation');unique(s.entries,'entry');unique(s.contracts,'contract');unique(s.audit,'audit');for(const r of [...s.bills,...s.payments,...s.entries])if(r.date!==undefined&&!validDate(r.date))throw Error('Invalid entry date');for(const p of s.plans)if(!validDate(p.due))throw Error('Invalid planned date');for(const b of s.bills)if(!Number.isSafeInteger(b.total)||b.total<=0)throw Error('Invalid bill amount');for(const p of s.payments){if(!Number.isSafeInteger(p.amount)||p.amount<=0)throw Error('Invalid payment amount');if(p.planId&&!plans.has(p.planId))throw Error('Missing linked plan')}for(const x of s.allocations){if(!pays.has(x.paymentId)||!bills.has(x.billId)||!Number.isSafeInteger(x.amount)||x.amount<=0)throw Error('Invalid payment allocation')}for(const a of s.allocations){const p=s.payments.find(p=>p.id===a.paymentId),b=s.bills.find(b=>b.id===a.billId);if(p.vendor&&b.vendor&&String(p.vendor).trim().toLowerCase()!==String(b.vendor).trim().toLowerCase())throw Error('Payment recipient does not match bill vendor')}for(const p of s.payments){const plan=s.plans.find(t=>t.id===p.planId);if(plan&&p.vendor&&plan.vendor&&String(p.vendor).trim().toLowerCase()!==String(plan.vendor).trim().toLowerCase())throw Error('Payment recipient differs from linked instalment recipient')}for(const p of s.payments)if(sum(s.allocations.filter(a=>a.paymentId===p.id).map(a=>a.amount))>p.amount)throw Error('Payment is overallocated');for(const b of s.bills)if(sum(s.allocations.filter(a=>a.billId===b.id).map(a=>a.amount))>b.total)throw Error('Bill is overpaid');for(const t of s.plans)if(!Number.isSafeInteger(t.amount)||t.amount<=0)throw Error('Invalid planned amount');for(const t of s.plans)if(sum(s.payments.filter(p=>p.planId===t.id).map(p=>p.amount))>t.amount)throw Error('Plan is overpaid');for(const b of s.bills){if(b.lines?.length){for(const l of b.lines)if(l.value!==lineValue(l))throw Error('Bill has inconsistent line-item value');if(billTotal(b.lines,b.extras||0,b.tax||0,b.discount||0)!==b.total)throw Error('Bill line totals do not reconcile')}}for(const f of s.files)if(!f.id||typeof f.sha256!=='string'||!/^[a-f0-9]{64}$/.test(f.sha256))throw Error('Invalid file metadata');return true}
+export function verifyState(s){
+ verifyFinancialState(s);
+ const catalog=new Map(costCatalog(s).map(c=>[c.id,c]));
+ for(const b of s.bills){
+  validateClassification(b,catalog);
+  for(const line of b.lines||[]){validateClassification(line,catalog);if(line.multiplier!=null&&qtyScaled(line.multiplier)<=0n)throw Error('Multiplier must be greater than zero.');if(line.qty!=null)qtyScaled(line.qty);if(line.rate!=null)paise(line.rate);}
+  for(const key of ['extras','tax','discount'])if(b[key]!==undefined&&(!Number.isSafeInteger(b[key])||b[key]<0))throw Error('Invalid invoice '+key);
+ }
+ for(const record of [...s.plans,...s.contracts])validateClassification(record,catalog);
+ for(const contract of s.contracts){if(!Number.isSafeInteger(contract.amount)||contract.amount<=0)throw Error('Invalid contract amount.');if(contract.calculation){validateClassification(contract.calculation,catalog);if(lineValue(contract.calculation)!==contract.amount)throw Error('Contract calculation does not match the agreed amount.');}}
+ for(const contract of s.contracts)if(contract.scheduleComplete){
+  const plans=s.plans.filter(p=>p.contractId===contract.id);
+  if(!Number.isSafeInteger(contract.amount)||contract.amount<=0||sum(plans.map(p=>p.amount))!==contract.amount)throw Error('Contract instalments do not reconcile.');
+ }
+ return true;
+}
 export function appliedForBill(s,id){return sum(s.allocations.filter(a=>a.billId===id).map(a=>a.amount))}
 export function availableForPayment(s,id){const p=s.payments.find(x=>x.id===id);return p?p.amount-sum(s.allocations.filter(a=>a.paymentId===id).map(a=>a.amount)):0}
 export function dueForBill(s,id){const b=s.bills.find(x=>x.id===id);return b?b.total-appliedForBill(s,id):0}
@@ -47,7 +76,7 @@ export function changeEntry(s,kind,id,patch=null){
   if(kind==='contract'){
    const plans=s.plans.filter(p=>p.contractId===id);
    if(plans.length&&record.amount!==before.amount){const amounts=proportional(record.amount,plans.map(p=>p.amount));plans.forEach((p,i)=>p.amount=amounts[i]);}
-   for(const p of plans){p.vendor=record.vendor;p.title=String(p.title).replace(before.title,record.title);}
+   for(const p of plans){p.vendor=record.vendor;p.title=String(p.title).replace(before.title,record.title);for(const key of ['costHeadId','costSubheadId','costDetailId','costNature','work'])if(key in patch)p[key]=record[key];}
   }
  }else{
   const planIds=new Set(kind==='contract'?s.plans.filter(p=>p.contractId===id).map(p=>p.id):kind==='plan'?[id]:[]);
@@ -55,6 +84,7 @@ export function changeEntry(s,kind,id,patch=null){
   if(kind==='bill')s.allocations=s.allocations.filter(a=>a.billId!==id);
   if(kind==='payment')s.allocations=s.allocations.filter(a=>a.paymentId!==id);
   if(kind==='contract')s.plans=s.plans.filter(p=>!planIds.has(p.id));
+  if(kind==='plan'&&record.contractId){const contract=s.contracts.find(c=>c.id===record.contractId);if(contract?.scheduleComplete)contract.scheduleComplete=false;}
   for(const p of s.payments)if(planIds.has(p.planId))p.planId='';
  }
  const changes=[];
@@ -69,6 +99,18 @@ export function validateRecordChanges(previous,next,replace=false){
  const existing=new Map(previous.audit.map(a=>[a.id,a]));
  const incoming=new Map(next.audit.map(a=>[a.id,a]));
  for(const [id,a] of existing)if(JSON.stringify(a)!==JSON.stringify(incoming.get(id)))throw Error('Cannot change or delete an audit record.');
+ const beforeCatalog=previous.settings?.costCatalog,afterCatalog=next.settings?.costCatalog;
+ const previousCategories=costCatalog(previous),newCategories=costCatalog(next),categoryBefore=new Map(previousCategories.map(c=>[c.id,c]));
+ const catalogChanges=newCategories.filter(c=>JSON.stringify(categoryBefore.get(c.id))!==JSON.stringify(c)).map(c=>({id:c.id,before:categoryBefore.get(c.id)||null,after:c}));
+ const exactCatalogLog=a=>a.catalogChanges!==undefined?JSON.stringify(a.catalogChanges)===JSON.stringify(catalogChanges):JSON.stringify(a.before)===JSON.stringify(beforeCatalog)&&JSON.stringify(a.after)===JSON.stringify(afterCatalog);
+ if(JSON.stringify(beforeCatalog)!==JSON.stringify(afterCatalog)){
+  const nextCategories=new Map(newCategories.map(c=>[c.id,c]));
+  for(const category of previousCategories){const saved=nextCategories.get(category.id);if(!saved||saved.type!==category.type||saved.parentId!==category.parentId||saved.origin!==category.origin)throw Error('Cost category identity and parent cannot change; deactivate instead.');}
+  const initialSeed=beforeCatalog===undefined&&JSON.stringify(afterCatalog)===JSON.stringify(seedCostCatalog());
+  const catalogLog=next.audit.some(a=>!existing.has(a.id)&&a.type==='cost_catalog'&&exactCatalogLog(a));
+  if(!initialSeed&&!catalogLog)throw Error('Cannot modify the cost catalog without an exact audit log.');
+ }
+ for(const a of next.audit.filter(a=>!existing.has(a.id)&&a.type==='cost_catalog'))if(!exactCatalogLog(a))throw Error('Catalog audit does not match saved categories.');
  const changes=next.audit.filter(a=>!existing.has(a.id)&&['entry_edit','entry_delete'].includes(a.type)).flatMap(a=>a.changes||[]);
  for(const k of postedLists){
   const wanted=new Map(next[k].map(r=>[r.id,r]));

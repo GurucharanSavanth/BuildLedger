@@ -15,6 +15,9 @@ jobs:
           node --check app.js
           node --check finance.js
           node --check hierarchy.js
+          node --check cost-catalog.js
+          node --check cost-analytics.js
+          node --check server/domain.mjs
           node --check server/http.mjs
       - name: Run finance, archive and SQLite integration tests
         run: npm test
@@ -35,6 +38,7 @@ jobs:
             sleep 1
           done
           python tests/browser_regressions.py
+          python tests/browser_costs.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

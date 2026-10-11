@@ -1,4 +1,4 @@
-# BuildLedger V7 — Construction Finance & Hierarchical Analytics
+# BuildLedger V8 — Construction Finance & Cost Classification
 
 A responsive construction-expense manager with a minimalist interface, persistent local SQLite and HTTP API, instalments, receipts, file storage and a Stage → Substage → Material → Bill drill-down.
 
@@ -7,9 +7,22 @@ A responsive construction-expense manager with a minimalist interface, persisten
 ## Start here
 
 **GitHub upload and live deployment:** [GITHUB_DEPLOY_GUIDE_V7.md](GITHUB_DEPLOY_GUIDE_V7.md)  
-**Changes:** [CHANGELOG_V7.md](CHANGELOG_V7.md)  
-**Testing:** [TEST_REPORT_V7.md](TEST_REPORT_V7.md)  
+**Changes:** [CHANGELOG_V8.md](CHANGELOG_V8.md)
+
+**Testing:** [IMPLEMENTATION_REPORT_V8.md](IMPLEMENTATION_REPORT_V8.md)
 **REST endpoints:** [API_REFERENCE.md](API_REFERENCE.md)
+
+### V8 expense classification
+
+Cost heads are independent of work stages. Add Entry supports direct amounts by default, independently classified invoice lines, optional quantity/rate calculations, explicit Sq Ft to SQ conversion and a visible multiplier. The default catalog contains all 19 construction expense heads, 186 subheads and 31 material/service details. Owner-created categories, units and descriptions can extend it; categories can be renamed, reordered and deactivated without losing their identity.
+
+Explore offers Cost Heads, Work Stages and cost-nature reports. Both hierarchies allocate the same recorded invoices, including freight, tax and discount, exactly once. Payments, supplier advances, agreements and future instalments remain separate. Historical invoices without a classification remain in Unclassified / Legacy until deliberately edited with an audit record.
+
+In Categories, choose Cost Heads or Work Stages. Cost catalog changes retain precise audit evidence. Source invoice details and CSV exports show classification, calculation and financial evidence. Optional contract quotations use the same exact calculator; a quoted agreement creates commitments and planned instalments, not invoices.
+
+Schema 1 remains unchanged. IndexedDB, SQLite and MongoDB keep the optional fields in their existing state/record JSON. Encrypted backups preserve the catalog, classifications, audits and original files. Old backups remain readable; opening them does not silently classify their expenses. Downgrading to an older application is not supported for new calculation metadata.
+
+See [CHANGELOG_V8.md](CHANGELOG_V8.md) and [IMPLEMENTATION_REPORT_V8.md](IMPLEMENTATION_REPORT_V8.md) for changes, test commands and remaining limits. Deployment requirements in the V7 guide still apply: static hosting uses only IndexedDB; the full API needs Node, persistent storage, authentication for network access and HTTPS.
 
 ### Local installation, no password
 

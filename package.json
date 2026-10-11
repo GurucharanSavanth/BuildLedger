@@ -1,6 +1,6 @@
 {
   "name": "buildledger-web",
-  "version": "7.0.0",
+  "version": "8.0.0",
   "type": "module",
   "private": true,
   "description": "Accessible construction finance website with persistent local SQLite REST API and document vault",

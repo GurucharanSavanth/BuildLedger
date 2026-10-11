@@ -1,5 +1,21 @@
 # Authentication update (V5)
 
+## V8 cost classification read APIs
+
+These endpoints use the same authentication rules as other project APIs:
+
+| Method | Endpoint | Result |
+|---|---|---|
+| GET | `/api/v1/catalog/cost-heads` | Effective catalog `items` and `asOfRevision`, including inactive categories |
+| GET | `/api/v1/analytics/cost-hierarchy?level=cost-03&level=cost-03-07` | Stable-ID path, allocated recorded-cost `total`, distinct source bill `count`, child nodes; source line evidence at depth three |
+| GET | `/api/v1/analytics/costs?by=head` | Cost-head totals in integer `amountPaise` |
+| GET | `/api/v1/analytics/costs?by=subhead` | Parent-qualified subhead totals |
+| GET | `/api/v1/analytics/costs?by=nature` | Material, Labour, services and other optional cost-nature totals |
+
+The existing work/place/vendor/material breakdowns and stage hierarchy endpoints retain their behavior. Cost-hierarchy paths have at most three category identifiers. Unknown paths return 404; invalid depth returns 400. Cost measures derive only from posted invoices and include the legacy/unclassified bucket. Linked payments and planned instalments are separate obligations, not additional costs.
+
+Optional bill-line fields are `costHeadId`, `costSubheadId`, `costDetailId`, `costNature`, `unitId`, `quantityUnitId` and `multiplier`. Store taxonomy nodes in `settings.costCatalog`; do not replace the work-stage `settings.catalog`. State commits validate category ancestry, immutable identities, bounded catalog size, known units and exact audited edits. Category changes use `cost_catalog` audit records with exact `catalogChanges` before/after entity evidence. Existing full before/after catalog audit snapshots remain accepted. Existing commit revisions, idempotency keys and file verification requirements remain unchanged.
+
 Default `AUTH_MODE=local` on `127.0.0.1` does **not** require login or a session. `GET /api/v1/session` responds with `authenticated: true, auth: not_required`. `POST /api/v1/login` returns 404 because it is unnecessary. The entire API remains inaccessible when bound to a non-local interface in this mode. `AUTH_MODE=owner` retains the password-based API described below.
 
 ---

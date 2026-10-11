@@ -6,7 +6,7 @@ export function createPreviewServer(){return createServer(async(req,res)=>{try{
  if(!['127.0.0.1','localhost','[::1]'].includes(host)||req.headers['x-forwarded-host']||req.headers['x-forwarded-for']||req.headers.forwarded){res.writeHead(403);res.end('Local access only');return}
  if(!['GET','HEAD'].includes(req.method)){res.writeHead(405);res.end();return}
  const name=decodeURIComponent(new URL(req.url,'http://localhost').pathname).replace(/^\/+/, '')||'index.html';
- const allowed=['index.html','styles.css','app.js','finance.js','hierarchy.js','archive.js','db.js','sw.js','manifest.webmanifest','assets/icon.svg'];
+ const allowed=['index.html','styles.css','app.js','finance.js','hierarchy.js','cost-catalog.js','cost-analytics.js','archive.js','db.js','sw.js','manifest.webmanifest','assets/icon.svg'];
  if(!allowed.includes(name)&&!/^assets\/screenshot-[A-Za-z0-9_-]+\.png$/.test(name)){res.writeHead(404);res.end('Not found');return}
  const p=resolve(root,name);if(!p.startsWith(root+sep)){res.writeHead(403);res.end('Forbidden');return}
  const info=await stat(p);if(!info.isFile()){res.writeHead(404);res.end('Not found');return}const buf=await readFile(p);res.writeHead(200,{'Content-Type':types[extname(p)],'Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Content-Length':buf.length});res.end(req.method==='HEAD'?undefined:buf)

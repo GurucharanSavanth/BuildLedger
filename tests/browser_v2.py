@@ -1,23 +1,26 @@
 """UI test for V2 using a deterministic browser-side data adapter; validates UX and money breakdown, not live MongoDB."""
 from pathlib import Path
+import os
 from playwright.sync_api import sync_playwright
 p=Path(__file__).resolve().parent.parent
-html=(p/'index.html').read_text().replace('<link rel="stylesheet" href="./styles.css">','<style>'+(p/'styles.css').read_text()+'</style>')
+html=(p/'index.html').read_text(encoding='utf-8').replace('<link rel="stylesheet" href="./styles.css">','<style>'+(p/'styles.css').read_text(encoding='utf-8')+'</style>')
 import re
 html=re.sub(r'<meta http-equiv="Content-Security-Policy"[^>]*>','',html)
-finance=(p/'finance.js').read_text().replace('export ','')
-hierarchy=(p/'hierarchy.js').read_text().replace("import {add, sum, proportional, lineValue} from './finance.js';",'').replace('export ','')
+(p/'.tools').mkdir(exist_ok=True)
+from browser_module_source import financial_modules
+finance=financial_modules(p)
+hierarchy=''
 mock='''let fakeData=emptyState(),fakeFiles=new Map();function storageMode(){return 'local'}async function loginRemote(){}function hasPendingWrite(){return false}async function retryPendingWrite(){}async function readState(){return structuredClone(fakeData)}async function openDb(){return true}async function readFile(id){return fakeFiles.get(id)}async function readAllFiles(){return [...fakeFiles.values()]}async function readSnapshot(){return {state:structuredClone(fakeData),files:[...fakeFiles.values()]}}async function modify(fn,opt={}){const st=structuredClone(fakeData);let result=fn(st);st.rev=(fakeData.rev||0)+1;verifyState(st);fakeData=st;for(const f of (opt.newFiles||[]))fakeFiles.set(f.id,f);for(const id of (opt.removeFiles||[]))fakeFiles.delete(id);return result}async function replaceAll(data,files){verifyState(data);fakeData=data;fakeFiles=new Map(files.map(f=>[f.id,f]))}'''
-archive='\n'.join(x for x in (p/'archive.js').read_text().splitlines() if not x.startswith('import ')).replace('export ','')
-app='\n'.join(x for x in (p/'app.js').read_text().splitlines() if not x.startswith('import ')).replace('export ','')
+archive='\n'.join(x for x in (p/'archive.js').read_text(encoding='utf-8').splitlines() if not x.startswith('import ')).replace('export ','')
+app='\n'.join(x for x in (p/'app.js').read_text(encoding='utf-8').splitlines() if not x.startswith('import ')).replace('export ','')
 html=html.replace('<script type="module" src="./app.js"></script>','<script>'+finance+'\n'+hierarchy+'\n'+mock+'\n'+archive+'\n'+app+'</script>')
 with sync_playwright() as w:
- b=w.chromium.launch(headless=True,executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+ b=w.chromium.launch(headless=True,executable_path=os.environ.get('BUILDLEDGER_TEST_CHROME', '/usr/bin/chromium'),args=['--no-sandbox'])
  page=b.new_page(viewport={'width':1380,'height':900},accept_downloads=True)
  errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
  page.evaluate("Object.defineProperty(window.crypto,'subtle',{configurable:true,value:{digest:async()=>new Uint8Array(32).buffer}})")
  page.set_content(html,wait_until='load');page.wait_for_timeout(300)
- assert 'Money paid so far' in page.locator('#main').inner_text(),errors
+ assert 'Money paid' in page.locator('#main').inner_text(),errors
  page.locator('#rail-nav [data-nav=add]').click()
  page.locator('[data-flow=purchase]').click()
  page.locator('input[name=vendor]').fill('Test Materials')
@@ -37,7 +40,7 @@ with sync_playwright() as w:
  page.locator('#rail-nav [data-nav=home]').click()
  screen=page.locator('#main').inner_text();assert '₹5,500.25' in screen,screen
  assert page.evaluate("fakeData.bills[0].lines[0].qty")=='25.5'
- assert page.evaluate("fakeData.bills[0].lines[0].unit")=='kg'
+ assert page.evaluate("fakeData.bills[0].lines[0].unit")=='Kg'
  assert page.evaluate("fakeData.bills[0].lines[0].value")==550025
  print('PASS: direct amount purchase with optional fields and full payment')
  page.locator('#rail-nav [data-nav=add]').click()
@@ -84,9 +87,9 @@ with sync_playwright() as w:
  mobile=b.new_page(viewport={'width':390,'height':844})
  mobile.set_content(html,wait_until='load');mobile.wait_for_timeout(100)
  mobile.locator('#bottom-nav [data-nav=add]').click();mobile.locator('[data-flow=purchase]').click()
- mobile.screenshot(path=str(p/'assets'/'screenshot-mobile-direct-amount.png'),full_page=True)
+ mobile.screenshot(path=str(p/'.tools'/'screenshot-mobile-direct-amount.png'),full_page=True)
  assert not mobile.evaluate('document.documentElement.scrollWidth>innerWidth')
  page.locator('#rail-nav [data-nav=home]').click()
- page.screenshot(path=str(p/'assets'/'screenshot-desktop-v2.png'),full_page=True)
+ page.screenshot(path=str(p/'.tools'/'screenshot-desktop-v2.png'),full_page=True)
  print('PASS: mobile direct entry has no horizontal overflow; no JS page errors')
  b.close()

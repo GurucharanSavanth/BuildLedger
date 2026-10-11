@@ -27,7 +27,9 @@ driver.set_script_timeout(60)
 wait = WebDriverWait(driver, 20)
 
 def click(selector):
-    wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector))).click()
+    element = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, selector)))
+    driver.execute_script("arguments[0].scrollIntoView({block:'center',behavior:'instant'})", element)
+    element.click()
 
 def fill(selector, text):
     element = driver.find_element(By.CSS_SELECTOR, selector)

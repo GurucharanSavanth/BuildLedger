@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {emptyState,uid,changeEntry} from '../../finance.js';
+import {changeCostCategory} from '../../cost-catalog.js';
 
 // Run the real Mongo store methods with collection contracts, without requiring a live replica set.
 const source=await readFile(new URL('../../server/mongo-store.mjs',import.meta.url),'utf8');
@@ -36,4 +37,9 @@ test('Mongo audited deletion removes typed records and retains the audit trail',
  const next=await store.read();changeEntry(next,'bill',record.id);next.rev++;
  await store.commit({expectedRev:1,state:next,key:uid()});
  const saved=await store.read();assert.equal(saved.bills.length,0);assert.equal(saved.audit.length,2);assert.equal(saved.audit[1].changes[0].before.total,10000);
+});
+test('Mongo collection-contract adapter preserves stable classification and compact catalog audits',async()=>{
+ const store=fakeStore(),record={id:uid(),vendor:'A',title:'Electrical materials',total:10000,date:'2026-10-11',lines:[{mode:'amount',label:'Cable',directAmountPaise:10000,value:10000,costHeadId:'cost-03',costSubheadId:'cost-03-07',costNature:'Material'}]};
+ await store.postDomain('bill',record,[],uid());const next=await store.read();changeCostCategory(next,'cost-03',{label:'Electrical installation',active:false});next.rev++;
+ await store.commit({expectedRev:1,state:next,key:uid()});const saved=await store.read();assert.deepEqual(saved.bills[0],record);assert.equal(saved.settings.costCatalog.find(c=>c.id==='cost-03').active,false);assert.equal(saved.audit.at(-1).catalogChanges[0].before.label,'Electrical');
 });

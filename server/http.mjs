@@ -6,6 +6,8 @@ import {fileURLToPath} from 'node:url';
 import {createHmac, randomUUID} from 'node:crypto';
 import {metrics,activity,costs,timeline,appendDomain} from './domain.mjs';
 import {buildHierarchy,hierarchySummary} from '../hierarchy.js';
+import {buildCostHierarchy,costHierarchySummary} from '../cost-analytics.js';
+import {costCatalog} from '../cost-catalog.js';
 import {authConstantCompare,checkState,failure,safeName,CHUNK_SIZE,MAX_STATE_BYTES} from './core.mjs';
 const ROOT=path.resolve(fileURLToPath(new URL('../',import.meta.url)));
 const STATIC={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.json':'application/json','.webmanifest':'application/manifest+json','.png':'image/png','.ico':'image/x-icon'};
@@ -49,6 +51,8 @@ export function createHttpApp({store,password,secret,host='127.0.0.1',storeMode=
    if(url==='/api/v1/dashboard'&&req.method==='GET')return send(res,200,metrics(await store.read()));
    if(url==='/api/v1/activity'&&req.method==='GET')return send(res,200,activity(await store.read(),{type:u.searchParams.get('type')||'All',query:u.searchParams.get('q')||'',limit:Math.min(200,Number(u.searchParams.get('limit')||100)),offset:Number(u.searchParams.get('offset')||0)}));
    if(url==='/api/v1/analytics/costs'&&req.method==='GET')return send(res,200,costs(await store.read(),u.searchParams.get('by')||'work'));
+   if(url==='/api/v1/catalog/cost-heads'&&req.method==='GET'){const state=await store.read();return send(res,200,{items:costCatalog(state),asOfRevision:state.rev})}
+   if(url==='/api/v1/analytics/cost-hierarchy'&&req.method==='GET'){const levels=u.searchParams.getAll('level');if(levels.length>3||levels.some(x=>x.length>100))throw failure(400,'Choose up to three cost category identifiers');const state=await store.read(),selected=costHierarchySummary(buildCostHierarchy(state),levels);if(!selected)throw failure(404,'Cost category not found');return send(res,200,{...selected,asOfRevision:state.rev})}
    if(url==='/api/v1/analytics/hierarchy'&&req.method==='GET'){const levels=u.searchParams.getAll('level');if(levels.length>3||levels.some(x=>x.length>140))throw failure(400,'Choose up to three valid hierarchy levels');const root=buildHierarchy(await store.read());const selected=hierarchySummary(root,levels);if(!selected)throw failure(404,'Hierarchy category not found');return send(res,200,selected)}
    if(url==='/api/v1/calendar'&&req.method==='GET')return send(res,200,{items:timeline(await store.read())});
    if(url==='/api/v1/documents'&&req.method==='GET'){const st=await store.read();return send(res,200,{items:st.files,revision:st.rev})}
@@ -72,7 +76,7 @@ export function createHttpApp({store,password,secret,host='127.0.0.1',storeMode=
    throw failure(404,'API endpoint not found');
   }
   if(req.method!=='GET'&&req.method!=='HEAD')throw failure(405,'Method not allowed');
-  if(url==='/'||url==='')url='/index.html';const safe=path.resolve(ROOT,'.'+url);if(safe!==ROOT&&!safe.startsWith(ROOT+path.sep))throw failure(403,'Forbidden path');const ext=path.extname(safe),type=STATIC[ext];if(!type||!['/index.html','/styles.css','/finance.js','/hierarchy.js','/archive.js','/db.js','/app.js','/sw.js','/manifest.webmanifest','/assets/icon.svg'].includes(url)&&!url.startsWith('/assets/screenshot-'))throw failure(404,'Not found');const st=await stat(safe).catch(()=>null);if(!st||!st.isFile())throw failure(404,'Not found');res.writeHead(200,{'Content-Type':type,'Cache-Control':url.endsWith('.html')?'no-store':'public, max-age=120'});if(req.method==='HEAD')res.end();else createReadStream(safe).pipe(res);
+  if(url==='/'||url==='')url='/index.html';const safe=path.resolve(ROOT,'.'+url);if(safe!==ROOT&&!safe.startsWith(ROOT+path.sep))throw failure(403,'Forbidden path');const ext=path.extname(safe),type=STATIC[ext];if(!type||!['/index.html','/styles.css','/finance.js','/hierarchy.js','/cost-catalog.js','/cost-analytics.js','/archive.js','/db.js','/app.js','/sw.js','/manifest.webmanifest','/assets/icon.svg'].includes(url)&&!url.startsWith('/assets/screenshot-'))throw failure(404,'Not found');const st=await stat(safe).catch(()=>null);if(!st||!st.isFile())throw failure(404,'Not found');res.writeHead(200,{'Content-Type':type,'Cache-Control':url.endsWith('.html')?'no-store':'public, max-age=120'});if(req.method==='HEAD')res.end();else createReadStream(safe).pipe(res);
  }catch(err){if(!res.headersSent)send(res,err.status||500,{code:err.code||'ERROR',message:err.status?err.message:'Server operation failed'});else res.destroy(err);if(!err.status)console.error('SERVER ERROR',err)}}
  return http.createServer(handle);
 }
