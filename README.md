@@ -2,6 +2,8 @@
 
 A responsive construction-expense manager with a minimalist interface, persistent local SQLite and HTTP API, instalments, receipts, file storage and a Stage → Substage → Material → Bill drill-down.
 
+Browser document and attachment imports accept up to 25 MB per file. Larger files are rejected before reading their bytes to limit memory use on mobile devices. Existing stored files remain available.
+
 **Important:** This is tested source code for a **single owner**, not a certified multi-user public financial platform. Before using it for important financial records, complete a real-browser HTTPS acceptance test, security review, and independent transaction reconciliation.
 
 ## Start here

@@ -4,7 +4,7 @@ import {createReadStream} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHmac, randomUUID} from 'node:crypto';
-import {metrics,activity,costs,timeline,appendDomain} from './domain.mjs';
+import {metrics,activity,activityOptions,costs,timeline,appendDomain} from './domain.mjs';
 import {buildHierarchy,hierarchySummary} from '../hierarchy.js';
 import {buildCostHierarchy,costHierarchySummary} from '../cost-analytics.js';
 import {costCatalog} from '../cost-catalog.js';
@@ -49,7 +49,7 @@ export function createHttpApp({store,password,secret,host='127.0.0.1',storeMode=
    if(!loggedIn(req))throw failure(401,'Sign in to access your project','NOT_SIGNED_IN');
    if(url==='/api/v1/state'&&req.method==='GET'){return send(res,200,await store.read())}
    if(url==='/api/v1/dashboard'&&req.method==='GET')return send(res,200,metrics(await store.read()));
-   if(url==='/api/v1/activity'&&req.method==='GET')return send(res,200,activity(await store.read(),{type:u.searchParams.get('type')||'All',query:u.searchParams.get('q')||'',limit:Math.min(200,Number(u.searchParams.get('limit')||100)),offset:Number(u.searchParams.get('offset')||0)}));
+   if(url==='/api/v1/activity'&&req.method==='GET'){const options=activityOptions({type:u.searchParams.get('type')??'All',query:u.searchParams.get('q')??'',limit:u.searchParams.get('limit')??100,offset:u.searchParams.get('offset')??0});return send(res,200,activity(await store.read(),options));}
    if(url==='/api/v1/analytics/costs'&&req.method==='GET')return send(res,200,costs(await store.read(),u.searchParams.get('by')||'work'));
    if(url==='/api/v1/catalog/cost-heads'&&req.method==='GET'){const state=await store.read();return send(res,200,{items:costCatalog(state),asOfRevision:state.rev})}
    if(url==='/api/v1/analytics/cost-hierarchy'&&req.method==='GET'){const levels=u.searchParams.getAll('level');if(levels.length>3||levels.some(x=>x.length>100))throw failure(400,'Choose up to three cost category identifiers');const state=await store.read(),selected=costHierarchySummary(buildCostHierarchy(state),levels);if(!selected)throw failure(404,'Cost category not found');return send(res,200,{...selected,asOfRevision:state.rev})}

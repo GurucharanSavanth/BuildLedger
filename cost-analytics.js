@@ -1,16 +1,16 @@
 /* Cost classification reads source invoices; payments and plans never add cost. */
-import {add, sum, proportional, lineValue} from './finance.js';
+import {add, sum, proportional, lineValue, invoiceCostLines} from './finance.js';
 import {costCatalog} from './cost-catalog.js';
 
 export function allocatedCostLines(state) {
   const result=[];
   for(const bill of state.bills||[]) {
     if(!Number.isSafeInteger(bill.total)||bill.total<=0)throw Error('Invalid bill amount for cost analytics');
-    const lines=bill.lines?.length?bill.lines:[{...bill,label:bill.title,value:bill.total}];
+    const lines=invoiceCostLines(bill);
     const amounts=proportional(bill.total,lines.map(line=>Number.isSafeInteger(line.value)?line.value:lineValue(line)));
     lines.forEach((line,lineIndex)=>{
       if(!amounts[lineIndex])return;
-      result.push({billId:bill.id,billTitle:bill.title||'Untitled bill',vendor:bill.vendor||'Unknown supplier',date:bill.date||'',lineIndex,
+      result.push({billId:bill.id,billTitle:bill.title||'Untitled bill',vendor:bill.vendor||'Unknown supplier',date:bill.date||'',lineIndex:lines===bill.lines?lineIndex:-1,
         lineLabel:line.label||bill.title||'Unnamed item',amount:amounts[lineIndex],work:line.work||bill.work||'',substage:line.substage||bill.substage||'',place:line.place||bill.place||'',
         costHeadId:line.costHeadId||null,costSubheadId:line.costSubheadId||null,costDetailId:line.costDetailId||null,costNature:line.costNature||null});
     });

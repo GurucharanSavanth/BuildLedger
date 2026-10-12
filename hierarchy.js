@@ -3,7 +3,7 @@
  * across source lines, then indexed as Stage > Substage > Material > Entries.
  * Original invoice data is never mutated by analytical grouping.
  */
-import {add, sum, proportional, lineValue} from './finance.js';
+import {add, sum, proportional, lineValue, invoiceCostLines} from './finance.js';
 
 const label=(value, fallback)=>{
   const s=String(value??'').trim();
@@ -15,7 +15,7 @@ export function buildHierarchy(state) {
   const root=makeNode('All recorded bills',0);
   for(const bill of state.bills||[]) {
     if (!Number.isSafeInteger(bill.total) || bill.total<0) throw Error('Invalid bill amount for hierarchy');
-    const lines=Array.isArray(bill.lines) && bill.lines.length ? bill.lines : [{label:bill.title,work:bill.work,substage:bill.substage,place:bill.place,value:bill.total}];
+    const lines=invoiceCostLines(bill);
     const weights=lines.map(line=>Number.isSafeInteger(line.value)?line.value:lineValue(line));
     const amounts=proportional(bill.total,weights);
     amounts.forEach((amount,i)=>{
@@ -26,7 +26,7 @@ export function buildHierarchy(state) {
       let node=root;
       node.total=add(node.total,amount);
       const evidence={billId:bill.id, billTitle:bill.title||'Untitled bill', vendor:bill.vendor||'Unknown supplier',
-        amount, date:bill.date||'', lineIndex:i, lineLabel:labels[2], work:labels[0], substage:labels[1], place:line.place||bill.place||''};
+        amount, date:bill.date||'', lineIndex:lines===bill.lines?i:-1, lineLabel:labels[2], work:labels[0], substage:labels[1], place:line.place||bill.place||''};
       for (let depth=0;depth<labels.length;depth++) {
         const name=labels[depth];
         if (!node.children.has(name)) node.children.set(name,makeNode(name,depth+1));

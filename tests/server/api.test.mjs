@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {createHttpApp} from '../../server/http.mjs';import {emptyState,uid} from '../../finance.js';import {sha256,checkState,CHUNK_SIZE} from '../../server/core.mjs';import {validateFileMutation} from '../../server/invariants.mjs';
+import {activity,timeline} from '../../server/domain.mjs';
 
 class TestStore{
  constructor(){this.st=emptyState();this.assets=new Map();this.uploads=new Map();this.ops=new Map()}
@@ -14,6 +15,22 @@ class TestStore{
 async function makeApp(){const store=new TestStore();const app=createHttpApp({store,password:'TestPassword-DontUse',secret:'d'.repeat(48)});await new Promise(r=>app.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+app.address().port;return {store,app,base,close:()=>new Promise(r=>app.close(r))}}
 async function request(base,path,method='GET',data=null,cookie=''){let hdr={'Origin':base};if(cookie)hdr.Cookie=cookie;if(data!==null&&!Buffer.isBuffer(data))hdr['Content-Type']='application/json';let res=await fetch(base+path,{method,headers:hdr,body:data===null?undefined:Buffer.isBuffer(data)?data:JSON.stringify(data)});let type=res.headers.get('content-type')||'';return {res,data:type.includes('json')?await res.json():Buffer.from(await res.arrayBuffer())}}
 async function auth(x){let r=await request(x.base,'/api/v1/login','POST',{password:'TestPassword-DontUse'});assert.equal(r.res.status,200);return r.res.headers.get('set-cookie').split(';')[0]}
+
+test('activity validates pagination and bounded search before reading project data',async()=>{const x=await makeApp();try{
+ const cookie=await auth(x);let reads=0;const read=x.store.read.bind(x.store);x.store.read=()=>{reads++;return read()};
+ for(const query of ['limit=-1','offset=-1','limit=1.5','offset=1.5','limit=NaN','offset=Infinity','limit=','offset=1000001','limit=9007199254740992','q='+('a'.repeat(201)),'type='+('a'.repeat(81))])assert.equal((await request(x.base,'/api/v1/activity?'+query,'GET',null,cookie)).res.status,400,query);
+ assert.equal(reads,0,'Invalid inputs must not load or calculate the project');
+ x.store.st.audit=Array.from({length:205},(_,i)=>({id:uid(),description:'match '+i,type:'test',at:new Date(2026,0,1,0,i).toISOString()}));
+ let r=await request(x.base,'/api/v1/activity?type=audit&q=match&limit=999&offset=2','GET',null,cookie);assert.equal(r.res.status,200);assert.equal(r.data.count,205);assert.equal(r.data.items.length,200);assert.equal(r.data.items[0].label,'match 202');
+ r=await request(x.base,'/api/v1/activity?limit=0','GET',null,cookie);assert.equal(r.res.status,200);assert.deepEqual(r.data.items,[]);
+ assert.throws(()=>activity(x.store.st,{offset:0.5}),/non-negative integer/);
+ }finally{await x.close()}});
+
+test('calendar totals include all linked payments and exclude cancelled plans',()=>{
+ const s=emptyState();s.plans=[{id:uid(),vendor:'Engineer',title:'First',amount:1000,due:'2026-10-20'},{id:uid(),vendor:'Engineer',title:'Second',amount:2000,due:'2026-10-21'},{id:uid(),vendor:'Engineer',title:'Cancelled',amount:1000,due:'2026-10-22',cancelled:true}];
+ s.payments=[{id:uid(),vendor:'Engineer',amount:100,planId:s.plans[0].id},{id:uid(),vendor:'Engineer',amount:250,planId:s.plans[0].id},{id:uid(),vendor:'Engineer',amount:300}];
+ const items=timeline(s);assert.deepEqual(items.map(p=>[p.title,p.paid]),[['First',350],['Second',0]]);
+});
 test('API sign-in, domain bills, payment settlement, analytics, conflict, access control',async()=>{let x=await makeApp();try{
  assert.equal((await request(x.base,'/api/v1/health')).res.status,200);
  assert.equal((await request(x.base,'/api/v1/state')).res.status,401);

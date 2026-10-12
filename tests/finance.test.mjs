@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {paise,lineTotal,billTotal,emptyState,verifyState,dueForBill,availableForPayment,dueForPlan,breakdown,breakdownDetailed,monthlyTotals,summary,proportional,displayMoney,inputMoney} from '../finance.js';
+import test from 'node:test';import assert from 'node:assert/strict';import {paise,lineTotal,billTotal,emptyState,verifyState,dueForBill,availableForPayment,dueForPlan,breakdown,breakdownDetailed,monthlyTotals,summary,proportional,displayMoney,inputMoney,eventList,checkNewPayment} from '../finance.js';
 test('integer paise and exact quantity arithmetic',()=>{assert.equal(paise('1,234.56'),123456);assert.equal(lineTotal('2.500','100.25'),25063);assert.equal(billTotal([{qty:'2.500',rate:'100.25'}],101,0,1),25163);assert.throws(()=>paise('1.123'));assert.throws(()=>paise('-5'))});
 test('invoice payments and cash are not costs twice',()=>{const s=emptyState();s.bills=[{id:'b',total:50000,title:'Sump steel',lines:[{label:'Steel',qty:'1',rate:'500.00',unit:'kg',work:'Sump',place:'Site',value:50000}]}];s.payments=[{id:'p',amount:20000},{id:'p2',amount:15000}];s.allocations=[{id:'a',paymentId:'p',billId:'b',amount:20000}];verifyState(s);assert.equal(dueForBill(s,'b'),30000);assert.equal(availableForPayment(s,'p2'),15000);assert.equal(summary(s).invoiced,50000);assert.equal(summary(s).paid,35000);assert.equal(summary(s).owed,30000);assert.equal(summary(s).advances,15000)});
 test('invalid allocations and missing plan references fail closed',()=>{const s=emptyState();s.bills=[{id:'b',total:100}];s.payments=[{id:'p',amount:100}];s.allocations=[{id:'a',paymentId:'p',billId:'b',amount:101}];assert.throws(()=>verifyState(s));s.allocations[0].amount=100;s.payments[0].planId='missing';assert.throws(()=>verifyState(s))});
@@ -34,6 +34,7 @@ test('allocation remainder never assigns cost to a zero-value invoice line',()=>
   const actual=proportional(101,weights);assert.deepEqual(actual,expected);assert.equal(actual.reduce((a,b)=>a+b,0),101);
  }
  assert.deepEqual(proportional(101,[0,0]),[101,0]);
+ assert.deepEqual(proportional(0,[0,0]),[0,0]);
  const s=emptyState();s.bills=[{id:'bill',total:101,lines:[{label:'Steel',work:'Foundation',value:100},{label:'Cement',work:'Foundation',value:100},{label:'Free sample',work:'Finishing',value:0}]}];
  const groups=new Map(breakdown(s,'work'));assert.equal(groups.get('Foundation'),101);assert.equal(groups.get('Finishing'),0);
 });
@@ -44,4 +45,34 @@ test('monthly totals and breakdown do not overflow with larger datasets',()=>{co
 test('display and input preserve paise at largest safely representable integers',()=>{
   const cases=[[0,'₹0','0.00'],[1,'₹0.01','0.01'],[123456789,'₹12,34,567.89','1234567.89'],[9007199254740991,'₹9,00,71,99,25,47,409.91','90071992547409.91']];
   for(const [value,label,input] of cases){assert.equal(displayMoney(value),label);assert.equal(inputMoney(value),input)}
+});
+
+test('positive invoice charges cannot be assigned to zero-value lines',()=>{
+ const lines=[{mode:'amount',directAmountPaise:0,value:0,label:'Free steel'}];
+ assert.throws(()=>billTotal(lines,100),/positive item amount/);
+ const s=emptyState();s.bills=[{id:'b',total:100,lines,extras:100}];assert.equal(verifyState(s),true);
+ assert.deepEqual(breakdown(s,'work'),[['Uncategorised',100]]);assert.deepEqual(breakdown(s,'material'),[['Unclassified invoice adjustments',100]]);
+ assert.equal(billTotal(lines),0);
+});
+test('summary and activity index settlements once without record searches',()=>{
+ const s=emptyState();s.bills=[{id:'b',total:1000,title:'Steel',vendor:'Supplier',work:'Frame'}];
+ s.payments=[{id:'p',amount:500,planId:'plan',vendor:'Supplier',recordedAt:'2026-10-12T12:00:00Z'},{id:'advance',amount:200,vendor:'Supplier'}];
+ s.allocations=[{id:'a',paymentId:'p',billId:'b',amount:300,recordedAt:'2026-10-12T13:00:00Z'}];
+ s.plans=[{id:'plan',amount:500,title:'Paid',due:'2026-10-13'},{id:'later',amount:600,title:'Open',due:'2026-10-14'},{id:'cancelled',amount:700,due:'2026-10-15',cancelled:true}];
+ // Record searches and per-record settlement filters must not return to these read paths.
+ for(const list of [s.bills,s.payments,s.allocations,s.plans]){list.find=()=>{throw Error('Unexpected record search')};list.filter=()=>{throw Error('Unexpected settlement scan')}}
+ // Summary legitimately filters plans once by date, rather than payments once per plan.
+ s.plans.filter=Array.prototype.filter;
+ assert.deepEqual(summary(s,new Date('2026-10-12T12:00:00Z')),{paid:700,invoiced:1000,owed:700,advances:400,planned:600,budget:0,files:0});
+ const events=eventList(s);assert.equal(events.find(e=>e.id==='plan').status,'Completed');assert.equal(events.find(e=>e.id==='later').status,'Scheduled');
+ assert.equal(events.find(e=>e.id==='a').party,'Supplier');assert.equal(events.find(e=>e.id==='a').work,'Frame');
+ assert.deepEqual(eventList(s,{type:'allocation',query:'STEEL'}).map(e=>e.id),['a']);
+});
+test('payment review guards reject bill mismatch, overpayment and cancelled plans',()=>{
+ const s=emptyState();s.bills=[{id:'b',vendor:'Supplier',total:100}];s.plans=[{id:'plan',vendor:'Supplier',amount:100,due:'2026-10-13',cancelled:true}];
+ assert.throws(()=>checkNewPayment(s,{vendor:'Other',amount:50},{billId:'b',amount:50}),/does not match bill vendor/);
+ assert.throws(()=>checkNewPayment(s,{vendor:'Supplier',amount:101},{billId:'b',amount:101}),/unpaid bill balance/);
+ assert.throws(()=>checkNewPayment(s,{vendor:'Supplier',amount:50,planId:'plan'}),/cancelled instalment/);
+ assert.throws(()=>checkNewPayment(s,{vendor:'Supplier',amount:50},{billId:'b',amount:0}),/valid allocation amount/);
+ assert.doesNotThrow(()=>checkNewPayment(s,{vendor:' Supplier ',amount:50},{billId:'b',amount:50}));
 });

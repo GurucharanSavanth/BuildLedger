@@ -59,6 +59,8 @@ Account passwords and session secrets live only in `.env`, never in web assets o
 
 All financial values in responses are integers representing **paise**. Dates are ISO `YYYY-MM-DD`; transaction event timestamps are ISO 8601 (display `DD-MM-YYYY :: HH:mm:ss` in client local zone). Avoid comparing a cash figure with an accrued cost figure as if they were additive.
 
+Activity search `q` accepts at most 200 characters; `type` accepts at most 80. `limit` and `offset` must be non-negative integers. Results are capped at 200 per request; the maximum offset is 1,000,000. Invalid inputs return HTTP 400 before reading project data.
+
 ## Typed record posting
 
 - `POST /api/v1/bills` — `{ "record": { "id": "uuid", "vendor": "Supplier", "title": "Sump steel", "date": "2026-10-11", "recordedAt": "...UTC...", "total": 125000, "lines": [{"label":"12 mm TMT", "mode":"amount", "directAmountPaise":125000,"value":125000,"qty":null,"rate":null,"unit":null,"work":"Sump & excavation"}], "type": "purchase", "extras":0,"tax":0,"discount":0 }, "key":"uuid" }`

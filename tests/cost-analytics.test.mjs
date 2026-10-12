@@ -8,6 +8,16 @@ import {allocatedCostLines,buildCostHierarchy,costHierarchySummary,costBreakdown
 
 const direct=(amount,extra={})=>({mode:'amount',directAmountPaise:amount,value:amount,label:'Expense',...extra});
 const bill=(lines,extra={})=>makeBill({date:'2026-10-11',title:'Invoice',vendor:'Supplier',lines,...extra});
+test('historical adjustment-only invoices use an explicit unclassified bucket in every hierarchy',()=>{
+  const s=emptyState();s.bills.push({id:'legacy-adjustment',title:'Old invoice',vendor:'Supplier',total:100,extras:100,lines:[direct(0,{costHeadId:'cost-03',work:'Electrical',label:'Wire'}),direct(0,{costHeadId:'cost-05',work:'Materials',label:'Cement'})]});
+  verifyState(s);const entries=allocatedCostLines(s);
+  assert.equal(entries.length,1);assert.equal(entries[0].amount,100);assert.equal(entries[0].costHeadId,null);assert.equal(entries[0].lineIndex,-1);
+  assert.equal(entries[0].lineLabel,'Unclassified invoice adjustments');
+  assert.deepEqual(costBreakdown(s),[['Unclassified / Legacy',100]]);
+  const stages=buildHierarchy(s);assert.equal(stages.total,100);assert.equal(stages.children.size,1);assert.ok(stages.children.has('Uncategorised'));
+  changeEntry(s,'bill','legacy-adjustment',{notes:'Reviewed historical adjustments'});
+  assert.equal(s.bills[0].total,100);assert.equal(s.bills[0].notes,'Reviewed historical adjustments');verifyState(s);
+});
 test('independent cost heads apportion invoice charges exactly and trace one original bill',()=>{
   const s=emptyState();s.bills.push(bill([direct(10001,{costHeadId:'cost-03',costNature:'Labour',work:'Foundation'}),direct(20000,{costHeadId:'cost-07',costNature:'Material',work:'Roof'})],{extras:100,tax:150,discount:51}));
   const root=buildCostHierarchy(s),report=costHierarchySummary(root);
