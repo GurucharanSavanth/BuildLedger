@@ -2,64 +2,122 @@ name: BuildLedger regression tests
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
-  tests:
+  unit:
+    name: Node and SQLite
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: '24.21.0'
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
       - name: Check JavaScript syntax
-        run: |
-          node --check app.js
-          node --check finance.js
-          node --check hierarchy.js
-          node --check cost-catalog.js
-          node --check cost-analytics.js
-          node --check server/domain.mjs
-          node --check server/http.mjs
+        run: git ls-files -z -- '*.js' '*.mjs' | xargs -0 -r -n1 node --check
       - name: Run finance, archive and SQLite integration tests
         run: npm test
-      - uses: actions/setup-python@v5
+
+  browser:
+    name: Browser (${{ matrix.journey }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - journey: browser_regressions
+            mode: sqlite
+          - journey: browser_costs
+            mode: both
+          - journey: browser_projects
+            mode: sqlite
+          - journey: browser_pending_recovery
+            mode: sqlite
+          - journey: browser_workflow_fixes
+            mode: sqlite
+          - journey: browser_indexeddb_migration
+            mode: preview
+          - journey: browser_project_ownership
+            mode: preview
+          - journey: browser_owner_session
+            mode: owner
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
       - name: Install browser test tools
         run: python -m pip install selenium==4.47.0
-      - name: Test real browser and disposable SQLite
+      - name: Run disposable browser journey
         env:
           BUILDLEDGER_TEST_DISPOSABLE: '1'
           BUILDLEDGER_TEST_BASE_URL: http://127.0.0.1:8099
           BUILDLEDGER_TEST_LOCAL_URL: http://127.0.0.1:8098
+          BUILDLEDGER_TEST_ARTIFACT_DIR: .tools/browser-ci
+          TEST_JOURNEY: ${{ matrix.journey }}
+          TEST_MODE: ${{ matrix.mode }}
         run: |
-          PORT=8098 node dev-server.mjs &
-          preview_pid=$!
-          server_pid=''
-          trap 'if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; wait "$server_pid" || true; fi; kill "$preview_pid" 2>/dev/null || true; wait "$preview_pid" || true' EXIT
-          for journey in browser_regressions.py browser_costs.py browser_projects.py browser_pending_recovery.py browser_workflow_fixes.py; do
-            node scripts/browser-test-server.mjs &
-            server_pid=$!
+          pids=()
+          cleanup() {
+            for pid in "${pids[@]}"; do
+              kill "$pid" 2>/dev/null || true
+              wait "$pid" || true
+            done
+          }
+          trap cleanup EXIT
+          wait_for_server() {
             for attempt in $(seq 1 30); do
-              if curl --fail --silent http://127.0.0.1:8099/api/v1/health; then break; fi
+              if curl --fail --silent --max-time 2 "$1" >/dev/null; then return 0; fi
               sleep 1
             done
-            python "tests/$journey"
-            kill "$server_pid"
-            wait "$server_pid"
-            server_pid=''
-          done
-          python tests/browser_indexeddb_migration.py
-          python tests/browser_project_ownership.py
-          export BUILDLEDGER_TEST_OWNER_PASSWORD='disposable-owner-password'
-          node scripts/browser-test-server.mjs &
-          server_pid=$!
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:8099/api/v1/health; then break; fi
-            sleep 1
-          done
-          python tests/browser_owner_session.py
-      - uses: actions/upload-artifact@v4
+            echo "Server did not become ready: $1" >&2
+            return 1
+          }
+          if [[ "$TEST_MODE" == preview || "$TEST_MODE" == both ]]; then
+            PORT=8098 node dev-server.mjs &
+            pids+=("$!")
+            wait_for_server http://127.0.0.1:8098/
+          fi
+          if [[ "$TEST_MODE" != preview ]]; then
+            if [[ "$TEST_MODE" == owner ]]; then
+              export BUILDLEDGER_TEST_OWNER_PASSWORD='disposable-owner-password'
+            fi
+            node scripts/browser-test-server.mjs &
+            pids+=("$!")
+            wait_for_server http://127.0.0.1:8099/api/v1/health
+          fi
+          python -u "tests/$TEST_JOURNEY.py"
+      - name: Upload synthetic browser screenshots
         if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: browser-layouts
-          path: .tools/*.png
+          name: browser-${{ matrix.journey }}
+          path: .tools/**/*.png
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+  tests:
+    needs: [unit, browser]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all checks to pass
+        env:
+          UNIT_RESULT: ${{ needs.unit.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: test "$UNIT_RESULT" = success && test "$BROWSER_RESULT" = success

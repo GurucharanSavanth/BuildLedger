@@ -29,7 +29,8 @@ def click(css):
     element.click()
 
 def fill(css, value):
-    element = driver.find_element(By.CSS_SELECTOR, css)
+    element = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, css)))
+    driver.execute_script("arguments[0].scrollIntoView({block:'center',behavior:'instant'});", element)
     element.clear()
     element.send_keys(value)
 
@@ -69,9 +70,22 @@ try:
     custom_category = 'User-defined cost category'
     select('[data-cost=costHeadId]', 'cost-09')
     fill('.classification-search', custom_category);click('[data-create-cost-category]')
-    fill('[data-new-cost-category]', custom_category);click('[data-action=save-cost-category]')
+    fill('[data-new-cost-category]', custom_category)
+    driver.execute_script("""
+      window.__costTestFetch=window.fetch;window.__costTestCommit=false;window.__releaseCostRefresh=null;
+      window.fetch=async(...args)=>{const response=await window.__costTestFetch(...args),url=String(args[0]);
+        if(url==='/api/v1/commit'&&response.ok)window.__costTestCommit=true;
+        else if(window.__costTestCommit&&url.startsWith('/api/v1/state?projectId=')){window.__costTestCommit=false;await new Promise(resolve=>{window.__releaseCostRefresh=resolve})}
+        return response};
+    """)
+    click('[data-action=save-cost-category]')
     wait.until(lambda d: any(n['label'] == custom_category for n in snapshot()['settings']['costCatalog']))
     custom_category_id = next(n['id'] for n in snapshot()['settings']['costCatalog'] if n['label'] == custom_category)
+    wait.until(lambda d: d.execute_script("return typeof window.__releaseCostRefresh === 'function'"))
+    assert driver.execute_script("return document.querySelector('#entry-form [data-cost=costSubheadId]').value") != custom_category_id
+    driver.execute_script('window.__releaseCostRefresh()')
+    wait.until(lambda d: d.execute_script("return document.querySelector('#entry-form [data-cost=costSubheadId]')?.value") == custom_category_id)
+    driver.execute_script('window.fetch=window.__costTestFetch')
     assert driver.find_element(By.ID, 'f-vendor').get_attribute('value') == 'V8 Supplier'
     assert driver.find_element(By.ID, 'f-title').get_attribute('value') == 'Connection fee'
     fill('.classification-search', custom_category)
@@ -97,6 +111,7 @@ try:
     fill('[data-new-cost-category]', custom_line_detail);click('[data-action=save-cost-category]')
     wait.until(lambda d: any(n['label'] == custom_line_detail for n in snapshot()['settings']['costCatalog']))
     custom_line_detail_id = next(n['id'] for n in snapshot()['settings']['costCatalog'] if n['label'] == custom_line_detail)
+    wait.until(lambda d: d.execute_script("return document.querySelector('[data-line=\"0\"] [data-cost=costDetailId]')?.value") == custom_line_detail_id)
     assert driver.find_element(By.CSS_SELECTOR, '[data-line="0"] [data-cost=costDetailId]').get_attribute('value') == custom_line_detail_id
     assert custom_line_detail_id in [option.get_attribute('value') for option in driver.find_elements(By.CSS_SELECTOR, '[data-line="1"] [data-cost=costDetailId] option')]
     custom_overall_stage = 'Custom overall work stage'
@@ -196,8 +211,8 @@ try:
     click('.hierarchy-panel [data-detail="plan:' + plans[0]['id'] + '"]')
     assert 'Planned payment' in driver.find_element(By.CSS_SELECTOR, '#modal-inner').text
     click('#modal-inner [data-action=close]')
-    artifacts = Path(__file__).resolve().parent.parent / '.tools'
-    artifacts.mkdir(exist_ok=True)
+    artifacts = Path(os.environ.get('BUILDLEDGER_TEST_ARTIFACT_DIR', Path(__file__).resolve().parent.parent / '.tools'))
+    artifacts.mkdir(parents=True, exist_ok=True)
     driver.execute_script("window.scrollTo({top:0,behavior:'instant'})")
     driver.save_screenshot(str(artifacts / 'cost-explore-desktop.png'))
     flow('contract');fill('#f-vendor', 'V8 Quoted Builder');fill('#f-title', 'Explicit SQ quotation');fill('#f-count', '16')
