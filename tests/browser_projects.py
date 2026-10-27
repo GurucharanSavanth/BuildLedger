@@ -101,6 +101,29 @@ with tempfile.TemporaryDirectory(prefix='buildledger-project-download-') as down
         first_id = api('/api/v1/projects')['items'][0]['id']
         add_bill('First project invoice', '123.45')
 
+        click('[data-detail^="bill:"]')
+        click('[data-action="edit-entry"]')
+        original_tab = driver.current_window_handle
+        driver.switch_to.new_window('tab')
+        driver.get(os.environ.get('BUILDLEDGER_TEST_BASE_URL', 'http://127.0.0.1:8099'))
+        changed = driver.execute_async_script("""
+          const done=arguments[0];Promise.all([import('./db.js'),import('./finance.js')]).then(async([db,f])=>{
+            await db.openDb();await db.modify(s=>f.changeEntry(s,'bill',s.bills[0].id,{notes:'Corrected evidence'}));return true
+          }).then(done,e=>done({error:e.message}));
+        """)
+        assert changed is True, changed
+        driver.close()
+        driver.switch_to.window(original_tab)
+        click('form[data-form="edit-entry"] [data-action="create-work-category"]')
+        fill('[data-work-stage]', 'New browser stage')
+        fill('[data-work-substage]', 'New browser substage')
+        click('[data-action="save-work-category"]')
+        wait.until(lambda d: 'Work category created' in d.find_element(By.ID, 'toast').text)
+        click('form[data-form="edit-entry"] button[type="submit"]')
+        wait.until(lambda d: 'entry changed' in d.find_element(By.ID, 'toast').text.lower())
+        assert api('/api/v1/state?projectId=' + first_id)['bills'][0]['notes'] == 'Corrected evidence'
+        click('#modal-inner [data-action="close"]')
+
         open_projects()
         create_project(name)
         open_projects()
@@ -161,6 +184,20 @@ with tempfile.TemporaryDirectory(prefix='buildledger-project-download-') as down
         assert driver.find_element(By.CSS_SELECTOR, '.project-delete-actions [data-action="delete-project"]').get_attribute('disabled') is not None
         click('.project-delete-actions [data-action="close"]')
         assert len(api('/api/v1/projects')['items']) == 2
+
+        open_projects()
+        open_delete(first_id)
+        updated = driver.execute_async_script("""
+          const id=arguments[0],done=arguments[1];import('./db.js').then(async db=>{
+            await db.modify(s=>s.entries.push({id:crypto.randomUUID(),kind:'note',title:'New work',date:'2026-10-25'}),{projectId:id});return true
+          }).then(done,e=>done({error:e.message}));
+        """, first_id)
+        assert updated is True, updated
+        fill('#project-delete-confirm', 'Yes')
+        click('.project-delete-actions [data-action="delete-project"]')
+        wait.until(lambda d: 'review it again' in d.find_element(By.ID, 'toast').text.lower())
+        assert api('/api/v1/state?projectId=' + first_id)['entries'][0]['title'] == 'New work'
+        click('.project-delete-actions [data-action="close"]')
 
         open_projects()
         open_delete(first_id)

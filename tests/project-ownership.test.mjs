@@ -55,7 +55,7 @@ test('retained A file download cannot resolve B original after A deletion',()=>f
  const stateA=await db.readState(a.id),source=await readFile(new URL('../app.js',import.meta.url),'utf8'),start=source.indexOf('async function downloadFile(id)'),end=source.indexOf('async function openFileTab(id)',start);
  assert.ok(start>=0&&end>start);
  let downloaded;const download=new Function('state','selectedProject','readFile','downloadBlob','sessionGeneration','return ('+source.slice(start,end)+')')(stateA,a.id,db.readFile,(blob,name)=>{downloaded={blob,name}},0);
- await store.deleteProject(a.id);assert.equal(await db.activeProjectId(),b.id);
+ await store.deleteProject(a.id,(await store.read(a.id)).rev);assert.equal(await db.activeProjectId(),b.id);
  await assert.rejects(()=>download(id),/missing|not found|exist/i);assert.equal(downloaded,undefined);
  const preserved=await db.readFile(id,b.id);assert.deepEqual(new Uint8Array(await preserved.blob.arrayBuffer()),Uint8Array.from([66,66]));
 }));
@@ -75,14 +75,14 @@ test('deleted restore owner rejects without fallback or changing B',()=>fixture(
  const state=emptyState();state.entries.push(note('Recoverable source'));
  const zip=await packSnapshot(state,[],'recovery-password');let release;
  const restoring=archive.restoreBackup({arrayBuffer:()=>new Promise(resolve=>{release=async()=>resolve(await zip.arrayBuffer())})},'recovery-password');
- await store.deleteProject(a.id);await db.selectProject(b.id);await release();
+ await store.deleteProject(a.id,(await store.read(a.id)).rev);await db.selectProject(b.id);await release();
  await assert.rejects(restoring,/exist|found/i);
  assert.equal((await store.read(b.id)).entries.length,0);
  assert.equal((await archive.unpackSnapshot(zip,'recovery-password')).state.entries[0].title,'Recoverable source');
 }));
 
 test('retained A draft cannot be committed to B after A is deleted',()=>fixture(async({db,store,a,b})=>{
- const draft=note('A draft');await store.deleteProject(a.id);await db.selectProject(b.id);
+ const draft=note('A draft');await store.deleteProject(a.id,(await store.read(a.id)).rev);await db.selectProject(b.id);
  await assert.rejects(()=>db.modify(state=>state.entries.push(draft),{projectId:a.id}),/exist|found/i);
  assert.equal((await store.read(b.id)).entries.length,0);assert.equal(draft.notes,'Exact retained input');
 }));
@@ -129,7 +129,7 @@ test('deleted owner rejection retains exact unsubmitted financial input across a
  await assert.rejects(()=>db.modify(state=>state.payments.push(payment),{projectId:a.id}),error=>error.code==='SAVE_UNCERTAIN');
  assert.equal(attempts,2);assert.equal((await store.read(a.id)).payments.length,0);
  const retained=pending.get('pendingRemote');assert.ok(retained);globalThis.fetch=fetchBefore;
- const reopened=await reload(),deleted=await fetchBefore('/api/v1/projects/'+a.id,{method:'DELETE'});assert.equal(deleted.status,200);await deleted.json();
+ const reopened=await reload(),deleted=await fetchBefore('/api/v1/projects/'+a.id,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedRev:(await store.read(a.id)).rev})});assert.equal(deleted.status,200);await deleted.json();
  await reopened.selectProject(b.id);await assert.rejects(()=>reopened.retryPendingWrite(),error=>error.status===404);
  assert.ok(pending.get('pendingRemote')===retained,'Rejected writes retain the complete recovery payload');
  const restarted=await reload();assert.equal(restarted.hasPendingWrite(),true);assert.equal(restarted.pendingWriteSnapshot(),retained);
@@ -171,7 +171,7 @@ test('new original bytes survive rejected owner deletion and are cleared only wi
  globalThis.fetch=async(url,options)=>{if(url==='/api/v1/commit')throw Error('Commit request not sent');return fetchBefore(url,options)};
  await assert.rejects(()=>db.modify(state=>{state.payments.push({id:uid(),vendor:'Synthetic',amount:42567,date:'2026-10-25'});state.files.push({id,name:'Only-new-original.bin',size:bytes.length,type:'application/octet-stream',sha256})},{projectId:a.id,newFiles:[{id,blob:new Blob([bytes])}]}),error=>error.code==='SAVE_UNCERTAIN');
  const payload=pending.get('pendingRemote'),uploadId=JSON.parse(payload).newFiles[0].uploadId;globalThis.fetch=fetchBefore;
- const deleted=await fetchBefore('/api/v1/projects/'+a.id,{method:'DELETE'});assert.equal(deleted.status,200);await deleted.json();
+ const deleted=await fetchBefore('/api/v1/projects/'+a.id,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedRev:(await store.read(a.id)).rev})});assert.equal(deleted.status,200);await deleted.json();
  assert.equal(store.db.prepare('SELECT count(*) n FROM file_chunks WHERE upload_id=?').get(uploadId).n,0);
  const reopened=await reload();await reopened.selectProject(b.id);await assert.rejects(()=>reopened.retryPendingWrite(),error=>error.status===404);
  const originals=await reopened.readPendingOriginals(payload);assert.equal(originals.length,1);assert.equal(originals[0].id,id);assert.deepEqual(new Uint8Array(await originals[0].blob.arrayBuffer()),bytes);

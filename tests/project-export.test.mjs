@@ -14,7 +14,7 @@ test('project export is a verified project-only XLSX package with safe text, for
  state.project.name='=HYPERLINK("https://bad.invalid")';
  state.bills=[{id:'bill_0001',date:'2026-10-20',recordedAt:'2026-10-20T10:00:00Z',vendor:'@Supplier',title:'=2+3',total:12345}];
  state.payments=[{id:'payment_01',date:'2026-10-21',recordedAt:'2026-10-21T10:00:00Z',vendor:'@Supplier',amount:5000,reference:'+cmd'}];
- state.allocations=[{id:'alloc_0001',paymentId:'payment_01',billId:'bill_0001',amount:2500,at:'2026-10-21T11:00:00Z'}];
+ state.allocations=[{id:'alloc_0001',paymentId:'payment_01',billId:'bill_0001',amount:2500,recordedAt:'2026-10-21T11:00:00Z'}];
  state.contracts=[{id:'contract_01',createdAt:'2026-10-01',vendor:'Supplier',title:'Labour',amount:25000}];
  state.plans=[{id:'plan_00001',due:'2026-12-01',vendor:'Supplier',title:'Roof stage',amount:10000}];
  state.files=[{id:'file_00001',name:'清单.pdf',type:'application/pdf',size:first.length,sha256:sha(first),importedAt:'2026-10-22T10:00:00Z'},{id:'file_00002',name:'清单.pdf',type:'application/pdf',size:second.length,sha256:sha(second)}];
@@ -30,12 +30,26 @@ test('project export is a verified project-only XLSX package with safe text, for
  assert.match(text(workbook.get('xl/tables/table1.xml')),/ref="A1:M2"/);
  assert.match(text(workbook.get('xl/tables/table1.xml')),/autoFilter/);
  assert.match(text(workbook.get('xl/worksheets/sheet1.xml')),/<f>SUM\(Bills!E2:E2\)<\/f>/);
+ assert.match(text(workbook.get('xl/worksheets/sheet4.xml')),/2026-10-21T11:00:00Z/);
  assert.match(text(workbook.get('xl/charts/chart1.xml')),/Cash flow/);
  const billSheet=text(workbook.get('xl/worksheets/sheet2.xml'));assert.match(billSheet,/<t xml:space="preserve">=2\+3<\/t>/);assert.doesNotMatch(billSheet,/<f>=2\+3<\/f>/);
  assert.match(text(workbook.get('xl/worksheets/sheet7.xml')),/attachments\/file_00001/);
  assert.match(text(workbook.get('xl/worksheets/_rels/sheet7.xml.rels')),/Target="attachments\/file_00001"/);
  const checks=text(packageEntries.get('checksums.sha256'));assert.match(checks,new RegExp(sha(packageEntries.get('workbook.xlsx'))));assert.match(checks,new RegExp(sha(first)));assert.match(checks,new RegExp(sha(second)));
  const manifest=JSON.parse(text(packageEntries.get('export-manifest.json')));assert.deepEqual(manifest.accounting,{recordedCostPaise:12345,cashPaidPaise:5000,billSettlementsPaise:2500,outstandingCostPaise:9845,supplierAdvancesPaise:2500,commitmentsPaise:25000,futureSchedulesPaise:10000,exactPaiseTextIsAuthoritative:true});
+});
+
+test('project export preserves exact schedule and commitment totals above safe integer range',async()=>{
+ const state=emptyState(),max=Number.MAX_SAFE_INTEGER;
+ state.contracts=[{id:'c1',amount:max},{id:'c2',amount:1}];
+ state.plans=[{id:'p1',amount:max,due:'2026-01-01'},{id:'p2',amount:1,due:'2026-02-01'}];
+ verifyState(state);
+ const packed=parseZip(new Uint8Array(await (await createProjectExport(state,[],'project_large')).arrayBuffer()));
+ const manifest=JSON.parse(text(packed.get('export-manifest.json'))),workbook=parseZip(packed.get('workbook.xlsx'));
+ assert.equal(manifest.accounting.commitmentsPaise,'9007199254740992');
+ assert.equal(manifest.accounting.futureSchedulesPaise,'9007199254740992');
+ assert.match(text(workbook.get('xl/worksheets/sheet1.xml')),/9007199254740992/);
+ assert.deepEqual(JSON.parse(text(packed.get('records.json'))),state);
 });
 
 test('project export rejects changed or missing originals',async()=>{

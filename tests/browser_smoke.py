@@ -8,11 +8,11 @@ root=Path(__file__).resolve().parent.parent
 html=(root/'index.html').read_text(encoding='utf-8')
 html=html.replace('<link rel="stylesheet" href="./styles.css">','<style>'+(root/'styles.css').read_text(encoding='utf-8')+'</style>')
 html=html.replace('<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; style-src \'self\' \'unsafe-inline\'; img-src \'self\' blob: data:; media-src blob:; frame-src blob:; object-src \'none\'; connect-src \'self\'; base-uri \'self\'; form-action \'self\'">','')
-(root/'.tools').mkdir(exist_ok=True)
+artifacts=Path(os.environ.get('BUILDLEDGER_TEST_ARTIFACT_DIR', root/'.tools'));artifacts.mkdir(parents=True,exist_ok=True)
 from browser_module_source import financial_modules
 finance=financial_modules(root)
 hierarchy=''
-mockdb='''let fakeData=emptyState();let fakeFiles=new Map();function storageMode(){return 'local'}async function loginRemote(){}function hasPendingWrite(){return false}async function retryPendingWrite(){}async function readState(){return structuredClone(fakeData)}async function openDb(){return true}async function readFile(id){return fakeFiles.get(id)}async function readAllFiles(){return [...fakeFiles.values()]}async function readSnapshot(){return {state:structuredClone(fakeData),files:[...fakeFiles.values()]}}async function modify(fn,options={}){let next=structuredClone(fakeData);let r=fn(next);verifyState(next);fakeData=next;for(let x of (options.newFiles||[]))fakeFiles.set(x.id,x);return r}async function replaceAll(st,files){verifyState(st);fakeData=st;fakeFiles=new Map(files.map(x=>[x.id,x]))}'''
+mockdb='''let fakeData=emptyState();let fakeFiles=new Map();function storageMode(){return 'local'}function ownerAuthentication(){return false}async function activeProjectId(){return 'mock-project'}async function loginRemote(){}function hasPendingWrite(){return false}async function retryPendingWrite(){}async function readState(){return structuredClone(fakeData)}async function openDb(){return true}async function readFile(id){return fakeFiles.get(id)}async function readAllFiles(){return [...fakeFiles.values()]}async function readSnapshot(){return {state:structuredClone(fakeData),files:[...fakeFiles.values()]}}async function modify(fn,options={}){let next=structuredClone(fakeData);let r=fn(next);verifyState(next);fakeData=next;for(let x of (options.newFiles||[]))fakeFiles.set(x.id,x);return r}async function replaceAll(st,files){verifyState(st);fakeData=st;fakeFiles=new Map(files.map(x=>[x.id,x]))}'''
 archive=(root/'archive.js').read_text(encoding='utf-8')
 app=(root/'app.js').read_text(encoding='utf-8')
 for chunk in ['archive','app']:
@@ -29,7 +29,7 @@ with sync_playwright() as p:
  page.set_content(html,wait_until='load');page.wait_for_timeout(600)
  print('BOOT',page.locator('main').inner_text()[:260], 'errors',errors)
  assert page.get_by_text('Money paid').count()==1
- page.screenshot(path=str(root/'.tools'/'screenshot-desktop.png'),full_page=True)
+ page.screenshot(path=str(artifacts/'screenshot-desktop.png'),full_page=True)
  page.locator('#rail-nav [data-nav=add]').click();assert page.locator('[data-flow]').count()==9
  page.locator('[data-flow=purchase]').click()
  page.locator('input[name=vendor]').fill('Steel Supplier A')
@@ -48,7 +48,7 @@ with sync_playwright() as p:
  page.locator('#rail-nav [data-nav=home]').click()
  print('AFTER PURCHASE',page.locator('#main').inner_text()[:360])
  assert '₹625' in page.locator('#main').inner_text()
- page.screenshot(path=str(root/'.tools'/'screenshot-desktop-populated.png'),full_page=True)
+ page.screenshot(path=str(artifacts/'screenshot-desktop-populated.png'),full_page=True)
  page.locator('#rail-nav [data-nav=add]').click();page.locator('[data-flow=plan]').click()
  page.locator('input[name=vendor]').fill('Project engineer')
  page.locator('input[name=title]').fill('Engineer installment 1')
@@ -66,9 +66,9 @@ with sync_playwright() as p:
  mobile=b.new_page(viewport={'width':390,'height':844},device_scale_factor=1)
  merrors=[];mobile.on('pageerror',lambda e:merrors.append(str(e)))
  mobile.set_content(html,wait_until='load');mobile.wait_for_timeout(200)
- mobile.screenshot(path=str(root/'.tools'/'screenshot-mobile.png'),full_page=True)
+ mobile.screenshot(path=str(artifacts/'screenshot-mobile.png'),full_page=True)
  mobile.locator('#bottom-nav [data-nav=add]').click()
- mobile.screenshot(path=str(root/'.tools'/'screenshot-mobile-add.png'),full_page=True)
+ mobile.screenshot(path=str(artifacts/'screenshot-mobile-add.png'),full_page=True)
  assert mobile.locator('[data-flow]').count()==9
  print('Mobile horizontal scroll',mobile.evaluate('document.documentElement.scrollWidth > innerWidth'),'errors',merrors)
  assert mobile.evaluate('document.documentElement.scrollWidth <= innerWidth')

@@ -6,11 +6,11 @@ root=Path(__file__).resolve().parent.parent
 html=(root/'index.html').read_text(encoding='utf-8')
 html=html.replace('<link rel="stylesheet" href="./styles.css">','<style>'+(root/'styles.css').read_text(encoding='utf-8')+'</style>')
 html=html.replace('<meta http-equiv="Content-Security-Policy" content="default-src \'self\'; script-src \'self\'; style-src \'self\' \'unsafe-inline\'; img-src \'self\' blob: data:; media-src blob:; frame-src blob:; object-src \'none\'; connect-src \'self\'; base-uri \'self\'; form-action \'self\'">','')
-(root/'.tools').mkdir(exist_ok=True)
+artifacts=Path(os.environ.get('BUILDLEDGER_TEST_ARTIFACT_DIR', root/'.tools'));artifacts.mkdir(parents=True,exist_ok=True)
 from browser_module_source import financial_modules
 finance=financial_modules(root)
 hierarchy=''
-mockdb='''let fakeData=emptyState();let fakeFiles=new Map();function storageMode(){return 'local'}async function loginRemote(){}function hasPendingWrite(){return false}async function retryPendingWrite(){}async function readState(){return structuredClone(fakeData)}async function openDb(){return true}async function readFile(id){return fakeFiles.get(id)}async function readAllFiles(){return [...fakeFiles.values()]}async function readSnapshot(){return {state:structuredClone(fakeData),files:[...fakeFiles.values()]}}async function modify(fn,options={}){let next=structuredClone(fakeData);let r=fn(next);next.rev=(fakeData.rev||0)+1;verifyState(next);fakeData=next;for(let x of (options.newFiles||[]))fakeFiles.set(x.id,x);return r}async function replaceAll(st,files){verifyState(st);fakeData=st;fakeFiles=new Map(files.map(x=>[x.id,x]))}'''
+mockdb='''let fakeData=emptyState();let fakeFiles=new Map();function storageMode(){return 'local'}function ownerAuthentication(){return false}async function activeProjectId(){return 'mock-project'}async function loginRemote(){}function hasPendingWrite(){return false}async function retryPendingWrite(){}async function readState(){return structuredClone(fakeData)}async function openDb(){return true}async function readFile(id){return fakeFiles.get(id)}async function readAllFiles(){return [...fakeFiles.values()]}async function readSnapshot(){return {state:structuredClone(fakeData),files:[...fakeFiles.values()]}}async function modify(fn,options={}){let next=structuredClone(fakeData);let r=fn(next);next.rev=(fakeData.rev||0)+1;verifyState(next);fakeData=next;for(let x of (options.newFiles||[]))fakeFiles.set(x.id,x);return r}async function replaceAll(st,files){verifyState(st);fakeData=st;fakeFiles=new Map(files.map(x=>[x.id,x]))}'''
 archive='\n'.join(x for x in (root/'archive.js').read_text(encoding='utf-8').splitlines() if not x.startswith('import ')).replace('export ','')
 app='\n'.join(x for x in (root/'app.js').read_text(encoding='utf-8').splitlines() if not x.startswith('import ')).replace('export ','')
 html=html.replace('<script type="module" src="./app.js"></script>','<script>'+finance+'\n'+hierarchy+'\n'+mockdb+'\n'+archive+'\n'+app+'</script>')
@@ -55,7 +55,7 @@ with sync_playwright() as p:
  page.locator('#modal-inner [data-action=close]').first.click()
  page.locator('#rail-nav [data-nav=explore]').click();page.locator('[data-view=hierarchy]').click()
  page.locator('[data-hpath]').first.click()
- page.screenshot(path=str(root/'.tools'/'screenshot-hierarchy-desktop.png'),full_page=True)
+ page.screenshot(path=str(artifacts/'screenshot-hierarchy-desktop.png'),full_page=True)
  mobile=b.new_page(viewport={'width':390,'height':844})
  merr=[];mobile.on('pageerror',lambda e:merr.append(str(e)))
  mobile.set_content(html);mobile.wait_for_timeout(100)
@@ -63,7 +63,7 @@ with sync_playwright() as p:
  mobile.locator('[data-view=hierarchy]').click()
  assert mobile.get_by_text('Construction cost explorer').count()==1
  assert mobile.evaluate('document.documentElement.scrollWidth<=window.innerWidth')
- mobile.screenshot(path=str(root/'.tools'/'screenshot-hierarchy-mobile.png'),full_page=True)
+ mobile.screenshot(path=str(artifacts/'screenshot-hierarchy-mobile.png'),full_page=True)
  assert not merr,merr
  print('PASS V7 mobile hierarchy empty state, no horizontal overflow')
  b.close()

@@ -127,7 +127,8 @@ with tempfile.TemporaryDirectory(prefix='buildledger-pending-download-') as down
         driver.refresh()
         wait.until(EC.visibility_of_element_located((By.ID, 'pending-save')))
         assert stored('pendingRemote') == payload
-        api('/api/v1/projects/' + project_a['id'], 'DELETE')
+        revision = api('/api/v1/projects/' + project_a['id'] + '/summary')['rev']
+        api('/api/v1/projects/' + project_a['id'], 'DELETE', {'expectedRev': revision})
         driver.refresh()
         wait.until(lambda d: d.find_element(By.ID, 'project-name').text == project_b['name'])
         banner = wait.until(EC.visibility_of_element_located((By.ID, 'pending-save'))).text

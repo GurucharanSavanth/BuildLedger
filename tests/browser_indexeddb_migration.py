@@ -82,8 +82,12 @@ try:
       const created=await db.createProject('Separate house'),empty=await db.readState(created.id);
       assert(empty.bills.length===0&&empty.files.length===0&&empty.project.budget===0,'New project copied legacy data');
       await db.selectProject(legacyId);migrated=await db.readSnapshot();assert(migrated.state.bills[0].total===12345,'Switching projects changed legacy ledger');
-      const removed=await db.deleteProject(created.id);assert(removed.recordCount===0&&removed.attachmentCount===0&&(await db.listProjects()).length===1,'Deleting a separate project touched legacy data');
-      const summary=await db.deleteProject(legacyId);assert(summary.recordCount===1&&summary.attachmentCount===1&&summary.attachmentBytes===bytes.length,'Legacy deletion counts changed');
+      let staleRejected=false;try{await db.deleteProject(legacyId,7)}catch(error){staleRejected=/changed/i.test(error.message)}
+      assert(staleRejected,'Stale project deletion unexpectedly succeeded');
+      assert((await db.readState(legacyId)).bills[0].total===12345,'Stale deletion removed financial records');
+      assert(JSON.stringify([...new Uint8Array(await (await db.readFile('legacy-original',legacyId)).blob.arrayBuffer())])===JSON.stringify(bytes),'Stale deletion removed original bytes');
+      const removed=await db.deleteProject(created.id,(await db.readState(created.id)).rev);assert(removed.recordCount===0&&removed.attachmentCount===0&&(await db.listProjects()).length===1,'Deleting a separate project touched legacy data');
+      const summary=await db.deleteProject(legacyId,(await db.readState(legacyId)).rev);assert(summary.recordCount===1&&summary.attachmentCount===1&&summary.attachmentBytes===bytes.length,'Legacy deletion counts changed');
       assert(await db.activeProjectId()===null&&(await db.readState()).project.name==='','Deleting the final project did not leave an empty ledger');
       d=await openCurrent();tx=d.transaction(['projects','projectStates','projectBlobs','blobs'],'readonly');
       const counts=await Promise.all(['projects','projectStates','projectBlobs','blobs'].map(store=>request(tx.objectStore(store).count())));d.close();

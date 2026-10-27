@@ -29,16 +29,35 @@ jobs:
       - name: Test real browser and disposable SQLite
         env:
           BUILDLEDGER_TEST_DISPOSABLE: '1'
+          BUILDLEDGER_TEST_BASE_URL: http://127.0.0.1:8099
+          BUILDLEDGER_TEST_LOCAL_URL: http://127.0.0.1:8098
         run: |
+          PORT=8098 node dev-server.mjs &
+          preview_pid=$!
+          server_pid=''
+          trap 'if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; wait "$server_pid" || true; fi; kill "$preview_pid" 2>/dev/null || true; wait "$preview_pid" || true' EXIT
+          for journey in browser_regressions.py browser_costs.py browser_projects.py browser_pending_recovery.py browser_workflow_fixes.py; do
+            node scripts/browser-test-server.mjs &
+            server_pid=$!
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent http://127.0.0.1:8099/api/v1/health; then break; fi
+              sleep 1
+            done
+            python "tests/$journey"
+            kill "$server_pid"
+            wait "$server_pid"
+            server_pid=''
+          done
+          python tests/browser_indexeddb_migration.py
+          python tests/browser_project_ownership.py
+          export BUILDLEDGER_TEST_OWNER_PASSWORD='disposable-owner-password'
           node scripts/browser-test-server.mjs &
           server_pid=$!
-          trap 'kill "$server_pid"; wait "$server_pid" || true' EXIT
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8099/api/v1/health; then break; fi
             sleep 1
           done
-          python tests/browser_regressions.py
-          python tests/browser_costs.py
+          python tests/browser_owner_session.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:

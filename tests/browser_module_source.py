@@ -4,6 +4,8 @@ import re
 def module_source(root, filename):
     source = (root / filename).read_text(encoding='utf-8')
     names = re.findall(r'export\s+(?:async\s+)?(?:function|const)\s+(\w+)', source)
+    if filename == 'finance.js':
+        names.remove('activitySearch')
     source = '\n'.join(line for line in source.splitlines() if not line.startswith('import '))
     source = source.replace('export ', '')
     exports = ','.join(names)

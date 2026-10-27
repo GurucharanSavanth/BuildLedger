@@ -10,7 +10,7 @@ import * as analytics from '../cost-analytics.js';
 const source=(await readFile(new URL('../app.js',import.meta.url),'utf8')).split('\n').filter(line=>!line.startsWith('import ')).join('\n').replace(/start\(\);\s*$/,'');
 function harness(state=finance.emptyState()){
  const elements=new Map(),element=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',hidden:true,querySelector:()=>({focus(){}})});return elements.get(id)};
- const context=vm.createContext({...finance,...hierarchy,...catalog,...analytics,fixture:state,document:{getElementById:element,activeElement:null},hasPendingWrite:()=>false,ownerAuthentication:()=>false,FormData:class{constructor(form){this.values=form.values}entries(){return Object.entries(this.values)}}});
+ const context=vm.createContext({...finance,...hierarchy,...catalog,...analytics,structuredClone,fixture:state,document:{getElementById:element,activeElement:null},hasPendingWrite:()=>false,ownerAuthentication:()=>false,FormData:class{constructor(form){this.values=form.values}entries(){return Object.entries(this.values)}}});
  vm.runInContext(source,context);vm.runInContext('state=fixture',context);
  return {context,element,run:code=>vm.runInContext(code,context)};
 }
@@ -40,6 +40,38 @@ test('owner sign-out revokes the session and removes displayed ledger state',asy
  await h.run('actionClick(event)');locked=h.context.locked;
  assert.equal(signedOut,1);assert.equal(locked,true);assert.equal(h.run('selectedProject'),null);
  assert.equal(h.run('state.entries.length'),0);assert.equal(h.element('rail-nav').innerHTML,'');
+});
+
+test('sign-out from another tab locks and clears the current ledger',()=>{
+ const state=finance.emptyState();state.entries=[{id:'private',title:'Private note'}];const h=harness(state);let channel;
+ h.context.ownerAuthentication=()=>true;h.context.clearInterval=()=>{};
+ h.context.document.addEventListener=()=>{};h.element('modal').addEventListener=()=>{};
+ h.context.BroadcastChannel=class{constructor(){channel=this}};
+ h.run("selectedProject='private-project';showSignIn=()=>{};registerListeners()");
+ channel.onmessage({data:{signedOut:true}});
+ assert.equal(h.run('sessionLocked'),true);assert.equal(h.run('state.entries.length'),0);
+ assert.equal(h.run('selectedProject'),null);assert.equal(h.element('rail-nav').innerHTML,'');
+});
+
+test('editing retains the opening record after an inline category refresh',async()=>{
+ const state=finance.emptyState();state.entries=[{id:'note',kind:'note',title:'Old',date:'2026-10-25',notes:'Old notes'}];
+ const h=harness(state),form={dataset:{kind:'note',id:'note',projectId:'project'},values:{title:'Old',date:'2026-10-25',work:'',notes:'Old notes'}};
+ h.element('modal-inner').querySelector=selector=>selector==='[data-form="edit-entry"]'?form:{focus(){}};
+ h.context.commit=async change=>change(state);h.run("selectedProject='project';editEntryForm('note','note')");
+ state.entries[0]={...state.entries[0],title:'Corrected',notes:'New evidence'};
+ h.context.form=form;await assert.rejects(()=>h.run('saveEntryEdit(form)'),/entry changed/i);
+ assert.equal(state.entries[0].title,'Corrected');assert.equal(state.entries[0].notes,'New evidence');
+});
+
+test('payment choices and CSV use indexed balances with exact amounts',async()=>{
+ const state=finance.emptyState();state.bills=[bill('bill')];
+ state.plans=[{id:'plan',title:'Stage',vendor:'Supplier',amount:10000,due:'2026-12-01'}];
+ state.payments=[{id:'payment',vendor:'Supplier',amount:5000,planId:'plan',date:'2026-10-11'}];
+ state.allocations=[{id:'allocation',billId:'bill',paymentId:'payment',amount:5000}];
+ const h=harness(state);h.context.dueForBill=()=>{throw Error('Unexpected repeated bill scan')};h.context.dueForPlan=()=>{throw Error('Unexpected repeated plan scan')};
+ h.context.Blob=Blob;let exported;h.context.downloadBlob=blob=>{exported=blob};h.run("flow='payment';selectedProject='project'");
+ const html=h.run('formPage()');assert.match(html,/Due ₹50/);assert.match(html,/₹50 remaining/);
+ h.run('csv()');const csv=await exported.text();assert.match(csv,/"50\.00"/);assert.match(csv,/"100\.00"/);
 });
 
 test('project dialogs cannot disclose late pre-logout responses after owner sign-out',async()=>{

@@ -43,11 +43,14 @@ test('SQLite projects isolate records and same-named file IDs and delete data at
   assert.deepEqual(Buffer.concat([...(await (async()=>{const chunks=[];for await(const chunk of store.fileStream(fileId,first.id))chunks.push(chunk);return chunks})())]),originalA);
   assert.deepEqual(Buffer.concat([...(await (async()=>{const chunks=[];for await(const chunk of store.fileStream(fileId,second.id))chunks.push(chunk);return chunks})())]),originalB);
   assert.deepEqual(await store.projectDeletionSummary(first.id),{projectId:first.id,projectName:'North wing',recordCount:1,attachmentCount:1,attachmentBytes:originalA.length,rev:1});
-  const deleted=await store.deleteProject(first.id);assert.equal(deleted.attachmentBytes,originalA.length);
+  await assert.rejects(()=>store.deleteProject(first.id,0),error=>error.status===409);
+  assert.equal((await store.read(first.id)).audit[0].description,'First project audit');
+  const preserved=[];for await(const chunk of store.fileStream(fileId,first.id))preserved.push(chunk);assert.deepEqual(Buffer.concat(preserved),originalA);
+  const deleted=await store.deleteProject(first.id,1);assert.equal(deleted.attachmentBytes,originalA.length);
   assert.deepEqual((await store.listProjects()).map(p=>p.id),[second.id]);
   assert.equal((await store.read(second.id)).files.length,1);
   const remaining=[];for await(const chunk of store.fileStream(fileId,second.id))remaining.push(chunk);assert.deepEqual(Buffer.concat(remaining),originalB);
-  await store.deleteProject(second.id);assert.deepEqual(await store.listProjects(),[]);
+  await store.deleteProject(second.id,1);assert.deepEqual(await store.listProjects(),[]);
   await store.close();await store.start();assert.deepEqual(await store.listProjects(),[]);
  }finally{await store.close();await rm(directory,{recursive:true,force:true})}
 });
@@ -89,6 +92,9 @@ test('SQLite HTTP project routes expose scoped project CRUD',async()=>{
   response=await fetch(base+`/api/v1/projects/${project.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Cottage II',budget:12345,expectedRev:0})});assert.equal((await response.json()).name,'Cottage II');
   response=await fetch(base+`/api/v1/projects/${project.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Stale name',budget:99,expectedRev:0})});assert.equal(response.status,409);
   assert.equal((await store.read(project.id)).project.budget,12345);assert.equal((await store.read(project.id)).audit.length,1);
-  response=await fetch(base+`/api/v1/projects/${project.id}`,{method:'DELETE'});assert.equal((await response.json()).projectName,'Cottage II');assert.deepEqual((await (await fetch(base+'/api/v1/projects')).json()).items,[]);
+  response=await fetch(base+`/api/v1/projects/${project.id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:'null'});assert.equal(response.status,422);
+  response=await fetch(base+`/api/v1/projects/${project.id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedRev:0})});assert.equal(response.status,409);
+  assert.equal((await store.read(project.id)).project.budget,12345);
+  response=await fetch(base+`/api/v1/projects/${project.id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({expectedRev:1})});assert.equal((await response.json()).projectName,'Cottage II');assert.deepEqual((await (await fetch(base+'/api/v1/projects')).json()).items,[]);
  }finally{await new Promise(resolve=>server.close(resolve));await store.close();await rm(directory,{recursive:true,force:true})}
 });

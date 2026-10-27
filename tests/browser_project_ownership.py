@@ -81,7 +81,7 @@ try:
     driver.switch_to.new_window('tab')
     driver.get(base_url)
     deletion = driver.execute_async_script("""
-      const done=arguments[1],id=arguments[0];import('./db.js').then(async db=>{await db.openDb();await db.deleteProject(id);done(true)}).catch(e=>done(e.stack));
+      const done=arguments[1],id=arguments[0];import('./db.js').then(async db=>{await db.openDb();await db.deleteProject(id,(await db.readState(id)).rev);done(true)}).catch(e=>done(e.stack));
     """, result['a']['id'])
     assert deletion is True, deletion
     driver.close()

@@ -75,7 +75,7 @@ export function createHttpApp({store,password,secret,host='127.0.0.1',storeMode=
    const projectRoute=url.match(/^\/api\/v1\/projects\/([A-Za-z0-9_-]{8,100})(?:\/(summary))?$/);
    if(projectRoute&&req.method==='GET'&&projectRoute[2]==='summary')return send(res,200,await store.projectDeletionSummary(projectRoute[1]));
    if(projectRoute&&req.method==='PATCH'&&!projectRoute[2])return send(res,200,await store.updateProject(projectRoute[1],await bodyJSON(req,8192)));
-   if(projectRoute&&req.method==='DELETE'&&!projectRoute[2])return send(res,200,await store.deleteProject(projectRoute[1]));
+   if(projectRoute&&req.method==='DELETE'&&!projectRoute[2])return send(res,200,await store.deleteProject(projectRoute[1],(await bodyJSON(req,8192))?.expectedRev));
    const projectId=u.searchParams.get('projectId')||undefined;
    if(url==='/api/v1/state'&&req.method==='GET'){return send(res,200,await store.read(projectId))}
    if(url==='/api/v1/dashboard'&&req.method==='GET')return send(res,200,metrics(await store.read(projectId)));

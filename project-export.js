@@ -6,6 +6,7 @@ const xml=value=>String(value??'').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u0
 const col=index=>{let out='';for(index++;index;index=Math.floor((index-1)/26))out=String.fromCharCode(65+(index-1)%26)+out;return out};
 const paise=value=>{if(!Number.isSafeInteger(value))throw Error('Export contains an unsafe paise amount.');return String(value)};
 const inr=value=>{if(!Number.isSafeInteger(value))throw Error('Export contains an unsafe paise amount.');return value/100};
+const exactSum=values=>{const total=values.reduce((sum,value)=>sum+BigInt(value),0n);return total<=BigInt(Number.MAX_SAFE_INTEGER)?Number(total):String(total)};
 const range=(column,count)=>`${column}2:${column}${Math.max(2,count+1)}`;
 const safeId=value=>{if(typeof value!=='string'||!/^[A-Za-z0-9_-]{1,100}$/.test(value))throw Error('Cannot export an unsafe project or attachment ID.');return value};
 const formulaCell=Symbol('generated formula');
@@ -19,7 +20,7 @@ function cell(ref,value,style=0){
 function sheetXml(sheet,index){
  const {headers,rows,table,links=[],drawing=false}=sheet;
  const all=[headers,...rows],last=Math.max(1,all.length),rowXml=all.map((row,r)=>`<row r="${r+1}">${row.map((value,c)=>cell(`${col(c)}${r+1}`,value,r===0?1:((typeof value==='number'||value?.[formulaCell]&&value.type!=='str')&&sheet.moneyColumns?.includes(c)?2:0))).join('')}</row>`).join('');
- const maxColumns=Math.max(headers.length,...rows.map(row=>row.length));
+ const maxColumns=rows.reduce((max,row)=>Math.max(max,row.length),headers.length);
  const cols=Array.from({length:maxColumns},(_,i)=>`<col min="${i+1}" max="${i+1}" width="${i===0?25:18}" customWidth="1"/>`).join('');
  const rels=[];let relId=1,hyperlinks=[];
  if(table){table.relId=`rId${relId++}`;rels.push(`<Relationship Id="${table.relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/table" Target="../tables/${table.file}"/>`)}
@@ -53,13 +54,13 @@ function chartXml(months){const last=Math.max(2,months.length+1),categories=`'Ca
 export async function createProjectExport(state,files,projectId){
  safeId(projectId);state=structuredClone(state);verifyState(state);
  const attachments=new Map(files.map(file=>[file.id,file]));for(const meta of state.files)if(!attachments.has(meta.id))throw Error('Cannot export because an original file is missing: '+meta.name);
- const sums=settlementIndex(state),recorded=sum(state.bills.map(b=>b.total)),cash=sum(state.payments.map(p=>p.amount)),settled=sum(state.allocations.map(a=>a.amount)),advances=cash-settled,commitments=sum(state.contracts.map(c=>c.amount)),future=sum(state.plans.filter(p=>!p.cancelled).map(p=>Math.max(0,p.amount-(sums.plans.get(p.id)||0))));
+ const sums=settlementIndex(state),recorded=sum(state.bills.map(b=>b.total)),cash=sum(state.payments.map(p=>p.amount)),settled=sum(state.allocations.map(a=>a.amount)),advances=cash-settled,commitments=exactSum(state.contracts.map(c=>c.amount)),future=exactSum(state.plans.filter(p=>!p.cancelled).map(p=>Math.max(0,p.amount-(sums.plans.get(p.id)||0))));
  const monthsMap=new Map();for(const payment of state.payments){const month=String(payment.date||'Unknown').slice(0,7);monthsMap.set(month,(monthsMap.get(month)||0)+payment.amount)}const months=[...monthsMap].sort(([a],[b])=>a.localeCompare(b)).map(([month,value])=>({month,value}));
  const billRows=state.bills.map(b=>{const paid=sums.bills.get(b.id)||0,owed=b.total-paid;return [b.id,b.date||'',b.vendor||'',b.title||'',inr(b.total),paise(b.total),inr(paid),paise(paid),inr(owed),paise(owed),b.invoice||'',b.recordedAt||'',b.notes||'']});
  const lineRows=state.bills.flatMap(b=>(b.lines||[]).map((line,index)=>[b.id,index+1,line.label||'',line.mode||'',line.qty??'',line.rate??'',line.unit||'',line.unitId||'',line.quantityUnitId||'',line.multiplier??'',line.directAmountPaise==null?'':paise(line.directAmountPaise),line.value==null?'':paise(line.value),line.work||'',line.substage||'',line.place||'',line.costHeadId||'',line.costNature||'',JSON.stringify(line)]));
  const workRows=state.entries.map(entry=>[entry.id,entry.date||'',entry.kind||'',entry.title||'',entry.work||'',entry.notes||'',entry.seconds??'',entry.recordedAt||'',entry.status||'',entry.party||'',entry.amount==null?'':paise(entry.amount),JSON.stringify(entry)]);
  const paymentRows=state.payments.map(p=>{const allocated=sums.payments.get(p.id)||0,advance=p.amount-allocated;return [p.id,p.date||'',p.vendor||'',inr(p.amount),paise(p.amount),p.billId||'',p.planId||'',inr(allocated),paise(allocated),inr(advance),paise(advance),p.reference||'',p.notes||'',p.recordedAt||'']});
- const allocationRows=state.allocations.map(a=>[a.id,a.paymentId,a.billId,inr(a.amount),paise(a.amount),a.at||'']);
+ const allocationRows=state.allocations.map(a=>[a.id,a.paymentId,a.billId,inr(a.amount),paise(a.amount),a.recordedAt||a.at||'']);
  const commitmentRows=state.contracts.map(c=>[c.id,c.createdAt||'',c.vendor||'',c.title||'',inr(c.amount),paise(c.amount),c.scheduleComplete?'Scheduled':'Unscheduled',c.work||'',c.place||'',c.notes||'']);
  const scheduleRows=state.plans.map(p=>{const paid=sums.plans.get(p.id)||0,remaining=p.cancelled?0:Math.max(0,p.amount-paid);return [p.id,p.due||'',p.vendor||'',p.title||'',inr(p.amount),paise(p.amount),inr(paid),paise(paid),inr(remaining),paise(remaining),p.cancelled?'Cancelled':'Active',p.contractId||'']});
  const attachmentRows=[],links=[];for(const [i,meta] of state.files.entries()){const path=`attachments/${safeId(meta.id)}`,name=`${meta.name||'attachment'} [${meta.id.slice(0,8)}]`;attachmentRows.push([meta.id,name,meta.type||'application/octet-stream',meta.size,meta.sha256,meta.importedAt||'',meta.category||'',meta.status||'',meta.revision||'',meta.linkId||'',path]);links.push({ref:`K${i+2}`,target:path})}
@@ -74,8 +75,8 @@ export async function createProjectExport(state,files,projectId){
   ['Bill settlements',{[formulaCell]:true,formula:`SUM(Allocations!${allocationEnd})`,cached:inr(settled)},String(settled)],
   ['Outstanding recorded cost',{[formulaCell]:true,formula:'B8-B10',cached:inr(recorded-settled)},String(recorded-settled)],
   ['Unapplied supplier advances',{[formulaCell]:true,formula:'B9-B10',cached:inr(advances)},String(advances)],
-  ['Contract commitments',{[formulaCell]:true,formula:`SUM(Commitments!${contractEnd})`,cached:inr(commitments)},String(commitments)],
-  ['Unpaid future schedules',{[formulaCell]:true,formula:`SUM(Schedules!${scheduleEnd})`,cached:inr(future)},String(future)],
+  ['Contract commitments',{[formulaCell]:true,formula:`SUM(Commitments!${contractEnd})`,cached:Number(commitments)/100},String(commitments)],
+  ['Unpaid future schedules',{[formulaCell]:true,formula:`SUM(Schedules!${scheduleEnd})`,cached:Number(future)/100},String(future)],
   ['Project budget',inr(state.project.budget||0),String(state.project.budget||0)],
   ['Budget status',state.project.budget?'Set':'Not set'],
   ['Cash reconciliation',{[formulaCell]:true,formula:`B9-SUM(Payments!${paymentEnd})`,cached:0},'0'],

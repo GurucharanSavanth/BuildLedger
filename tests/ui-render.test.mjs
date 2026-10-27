@@ -18,7 +18,7 @@ test('dashboard, charts and every entry detail render from real data with edit/d
  state.contracts=[{id:'contract1',vendor:'A',title:'Agreement',amount:10000,count:1,createdAt:'2026-10-11T10:00:00Z'}];
  state.entries=[{id:'note00001',kind:'note',title:'Site visit',date:'2026-10-11'}];
  state.allocations=[{id:'alloc0001',paymentId:'pay000001',billId:'bill00001',amount:5000}];
- const context=vm.createContext({...finance,...hierarchy,...costCatalog,...costAnalytics,fixture:state,document:{getElementById:element,activeElement:null},hasPendingWrite:()=>false});
+ const context=vm.createContext({...finance,...hierarchy,...costCatalog,...costAnalytics,structuredClone,fixture:state,document:{getElementById:element,activeElement:null},hasPendingWrite:()=>false});
  vm.runInContext(source,context);vm.runInContext('state=fixture',context);
  const home=vm.runInContext('home()',context);assert.match(home,/Project overview/);assert.match(home,/cash-chart/);assert.match(home,/budget-meter/);assert.ok(home.includes(finance.displayMoney(10000)));assert.equal((home.match(/class="kpi/g)||[]).length,5);
  for(const [kind,id] of [['bill','bill00001'],['payment','pay000001'],['plan','plan00001'],['contract','contract1'],['note','note00001'],['allocation','alloc0001']]){
