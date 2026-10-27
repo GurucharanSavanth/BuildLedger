@@ -46,6 +46,10 @@ def state():
 
 try:
     driver.get(base)
+    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.empty-projects')))
+    created = driver.execute_async_script("const done=arguments[0];import('./db.js').then(async db=>{await db.openDb();if((await db.listProjects()).length)throw Error('Expected fresh disposable server');await db.createProject('Browser regression fixture');done(true)}).catch(e=>done({error:e.message}))")
+    assert created is True, created
+    driver.refresh()
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.kpis')))
     driver.execute_script("window.__originalFetch=window.fetch;window.__lost=0;window.fetch=async(...args)=>{const r=await window.__originalFetch(...args);if(String(args[0]).endsWith('/commit')&&window.__lost++===0)throw Error('Lost success response');return r};")
     click('#rail-nav [data-nav=add]')

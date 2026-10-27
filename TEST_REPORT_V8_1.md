@@ -33,6 +33,6 @@ The existing 12,000-bill/24,000-line fixture retained exact cost/stage reconcili
 
 ## Limits
 
-Live MongoDB was skipped because no disposable replica-set URI was supplied; existing collection-contract adapter tests passed. Hosted CI, the pinned Node 24.21.0 runtime, production deployment, a screen-reader audit and the older three mock-browser scripts were not executed in this refinement pass. The new browser tests were run in server mode; the earlier V8 IndexedDB browser roundtrip was not repeated. Node archive/SQLite/storage regressions passed.
+This historical report predates the SQLite-only server cleanup; current database instructions and checks are in SQLITE_DEPLOYMENT.md and TEST_REPORT_SQLITE.md. Hosted CI, the pinned Node 24.21.0 runtime, production deployment, a screen-reader audit and the older three mock-browser scripts were not executed in this refinement pass. The new browser tests were run in server mode; the earlier V8 IndexedDB browser roundtrip was not repeated. Node archive/SQLite/storage regressions passed.
 
 Database and encrypted-backup formats are unchanged. The updated service-worker cache includes the refined assets. Duplicate detection is a conservative warning, not a guarantee of duplicate prevention. CSV export deliberately remains an all-record export and is labeled accordingly.

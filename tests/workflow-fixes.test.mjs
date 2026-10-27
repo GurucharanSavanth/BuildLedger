@@ -12,7 +12,7 @@ function harness(){
  const elements=new Map(),element=id=>elements.get(id)||null;
  elements.set('modal',{hidden:true});
  elements.set('main',{innerHTML:'draft',querySelector:()=>null,insertAdjacentHTML(where,html){this.notice=html}});
- const context=vm.createContext({...finance,...hierarchy,...catalog,...analytics,document:{getElementById:element},clearInterval(){},setTimeout(){},clearTimeout(){}});
+ const context=vm.createContext({...finance,...hierarchy,...catalog,...analytics,document:{getElementById:element},hasPendingWrite:()=>false,clearInterval(){},setTimeout(){},clearTimeout(){}});
  vm.runInContext(source,context);
  return {elements,context,run:code=>vm.runInContext(code,context)};
 }
@@ -22,12 +22,12 @@ test('form action buttons never submit entries implicitly',()=>{
 });
 
 test('cross-tab refresh preserves drafts, including edits started during its read',async()=>{
- const h=harness();let resolve,reads=0;
+ const h=harness();let resolve,reads=0;h.context.activeProjectId=async()=>'test-project';h.run('selectedProject="test-project"');
  h.context.readState=()=>{reads++;return new Promise(r=>resolve=r)};
  h.elements.set('entry-form',{});
  await h.run('refreshFromOtherTab()');assert.equal(reads,0);assert.match(h.elements.get('main').notice,/draft is preserved/);
  h.elements.delete('entry-form');const refresh=h.run('refreshFromOtherTab()');
- h.elements.set('entry-form',{});resolve({...finance.emptyState(),rev:99});await refresh;
+ await new Promise(done=>setImmediate(done));h.elements.set('entry-form',{});resolve({...finance.emptyState(),rev:99});await refresh;
  assert.equal(h.run('state.rev'),0);assert.equal(h.elements.get('main').innerHTML,'draft');
 });
 
@@ -54,15 +54,16 @@ test('oversize attachment is rejected before reading its bytes',async()=>{
 });
 
 test('restore description names the active replacement destination',()=>{
- const h=harness();h.context.storageMode=()=> 'remote';assert.match(h.run('backupUI()'),/persistent server project, for every connected browser/);
+ const h=harness();h.run('selectedProject="backup-destination"');h.context.storageMode=()=> 'remote';assert.match(h.run('backupUI()'),/persistent server project, for every connected browser/);
  h.context.storageMode=()=> 'local';assert.match(h.run('backupUI()'),/in this browser on this device/);
 });
 
-test('verified uncertain save resets timer; a failed retry keeps its duration',async()=>{
+test('verified uncertain save resets timer; a failed or absent retry keeps its duration',async()=>{
  const h=harness();h.run('timerSeconds=8;flow="note";closeModal=()=>{};refresh=async()=>{};toast=()=>{}');
  h.context.event={target:{closest:selector=>selector==='[data-action]'?{dataset:{action:'retry-save'}}:null}};
  h.context.retryPendingWrite=async()=>{throw Error('Still uncertain')};await h.run('actionClick(event)');assert.equal(h.run('timerSeconds'),8);
- h.context.retryPendingWrite=async()=>{};await h.run('actionClick(event)');assert.equal(h.run('timerSeconds'),0);
+ h.context.retryPendingWrite=async()=>{};await h.run('actionClick(event)');assert.equal(h.run('timerSeconds'),8);
+ h.context.retryPendingWrite=async()=>({ok:true});await h.run('actionClick(event)');assert.equal(h.run('timerSeconds'),0);
 });
 
 test('legacy adjustment-only invoices remain visible as unclassified and export honest evidence',async()=>{

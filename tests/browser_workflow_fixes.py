@@ -56,6 +56,10 @@ try:
         proof = Path(folder) / 'draft-proof.txt'
         proof.write_text('draft attachment survives another tab saving', encoding='utf-8')
         driver.get(base)
+        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.empty-projects')))
+        created = driver.execute_async_script("const done=arguments[0];import('./db.js').then(async db=>{await db.openDb();if((await db.listProjects()).length)throw Error('Expected fresh disposable server');await db.createProject('Browser regression fixture');done(true)}).catch(e=>done({error:e.message}))")
+        assert created is True, created
+        driver.refresh()
         wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '.kpis')))
         async_js("const db=await import('/db.js');await db.modify(s=>s.plans.push({id:'workflow-plan',title:'Engineer instalment',vendor:'Workflow Engineer',amount:100000,due:'2026-11-01',date:'2026-10-12',recordedAt:new Date().toISOString(),cancelled:false}));return true")
         driver.refresh()

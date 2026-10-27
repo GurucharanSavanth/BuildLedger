@@ -1,4 +1,4 @@
-"""UI test for V2 using a deterministic browser-side data adapter; validates UX and money breakdown, not live MongoDB."""
+"""UI test for V2 using a deterministic browser-side data adapter; validates UX and money breakdown with mock storage."""
 from pathlib import Path
 import os
 from playwright.sync_api import sync_playwright

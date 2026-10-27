@@ -12,7 +12,7 @@ The new independent cost axis is Cost Head → Subhead → Item/Service → Sour
 
 `cost-catalog.js` owns the default taxonomy, units, bounded tree validation, normalized sibling-name uniqueness, stable category changes and compact audit evidence. `cost-analytics.js` derives cost allocations and invoice evidence. Each invoice total, including tax/freight/discount, is apportioned once with the existing `proportional()` algorithm. Both axes independently reconcile to the same recorded invoice total.
 
-Persistence boundaries were inspected in `db.js`, `server/core.mjs`, `server/domain.mjs`, `server/invariants.mjs`, `server/sqlite-store.mjs`, `server/mongo-store.mjs`, `server/http.mjs` and `archive.js`. IndexedDB saves whole state, SQLite saves project settings and typed-record JSON, MongoDB preserves settings and typed document JSON, and encrypted archives preserve the complete state and authenticated original files. These existing formats support optional metadata without a database/schema/backup-format migration.
+Persistence boundaries were inspected in `db.js`, `server/core.mjs`, `server/domain.mjs`, `server/invariants.mjs`, `server/sqlite-store.mjs`, `server/http.mjs` and `archive.js`. IndexedDB saves whole state, SQLite saves project settings and typed-record JSON, and encrypted archives preserve the complete state and authenticated original files. These existing formats support optional metadata without a database/schema/backup-format migration.
 
 The audit also covered `index.html`, `styles.css`, existing tests, README/API documentation, deployment guidance, CI and the V7 changelog. Important compatibility risks addressed were import allowlists/offline assets, legacy missing classification, exact adjustment allocation, unchanged calculated lines during classification edits, compact category audit growth, mocked browser module scopes and double-counted cash in CSV exports.
 
@@ -42,7 +42,6 @@ The audit also covered `index.html`, `styles.css`, existing tests, README/API do
 | `tests/browser_v2.py` | Updated module loading/unit display, UTF-8/browser selection and ignored screenshots |
 | `tests/browser_regressions.py` | Deterministic native-click scrolling for taller forms |
 | `tests/ui-render.test.mjs` | New module contexts, audit/source rendering, rectangular/formula-safe CSV and separate cost/cash/settlement/cancelled-plan assertions |
-| `tests/server/mongo-replay.test.mjs` | Classified records and compact catalog changes through the collection-contract adapter |
 | `README.md` | V8 operation, compatibility and deployment notes |
 | `API_REFERENCE.md` | Added cost read APIs, identifiers and audit rules |
 | `CHANGELOG_V8.md` | Release changes |
@@ -155,7 +154,7 @@ Earlier test failures were repaired: incomplete fixtures omitted stored line val
 
 ## 7. Compatibility and deployment
 
-Schema stays at 1; SQLite tables, MongoDB collections, IndexedDB version and encrypted archive format remain unchanged. Shared validation reaches all normal save and restore boundaries. Tests confirm custom/default catalogs, classifications, audit snapshots, quoted commitments and original attachment bytes survive supported roundtrips. Old backups with no cost catalog restore unchanged. New optional arithmetic metadata should not be downgraded into V7.
+Schema stays at 1; SQLite tables, IndexedDB version and encrypted archive format remain unchanged. Shared validation reaches all normal save and restore boundaries. Tests confirm custom/default catalogs, classifications, audit snapshots, quoted commitments and original attachment bytes survive supported roundtrips. Old backups with no cost catalog restore unchanged. New optional arithmetic metadata should not be downgraded into V7.
 
 HTTP read APIs use existing authentication and revision conventions. New modules are available in both servers and the offline cache. Atomic file/state persistence, optimistic revisions, exact idempotency replay and uncertain-save recovery remain operational. Browser-only storage does not synchronize with server storage.
 
@@ -163,7 +162,6 @@ Static GitHub Pages can run the browser/IndexedDB application only. It cannot ru
 
 ## 8. Remaining limits and omitted work
 
-- **Skipped:** live MongoDB integration needs `TEST_MONGODB_URI` pointing to a disposable replica set. Collection-contract tests passed, but they are not live Mongo transaction evidence.
 - **Not executed:** legacy `tests/browser_live_sqlite.py`, which needs separately provisioned owner-login credentials/configuration; current disposable browser regressions cover live SQLite without reading `.env`. Owner authentication/access-control API tests passed.
 - **Not executed:** hosted CI, Node 22/CI-pinned Node runtime, real production HTTPS, hosting/failover and an actual screen-reader audit. GitHub Actions was updated but not run remotely.
 - Full financial verification still has pre-existing quadratic settlement scans. At the tested 12,000-record fixture it took about 6.3 seconds; large-project saves can pause. Analytics itself was much faster. The financial engine was not broadly refactored solely to optimize synthetic timing.

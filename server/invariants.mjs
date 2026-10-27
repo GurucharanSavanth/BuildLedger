@@ -1,4 +1,4 @@
-/* Checked on every versioned MongoDB commit before altering any stored original. */
+/* Checked on every versioned SQLite commit before altering any stored original. */
 import {failure,validId} from './core.mjs';
 const problem=msg=>failure(422,msg,'FILE_INTEGRITY_ERROR');
 export function validateFileMutation(previous,next,newFiles=[],removeFiles=[],replace=false){

@@ -6,6 +6,7 @@ try{await access(dest);console.log('Existing .env found; keeping it unchanged.')
 const secure=process.argv.includes('--secure');
 const config=[
  '# BuildLedger configuration - keep private, do not commit to source control',
+ '# SQLite server: retain SQLITE_PATH when upgrading an existing installation',
  'DATABASE_MODE=sqlite',
  'SQLITE_PATH=./data/buildledger.sqlite',
  'AUTH_MODE='+(secure?'owner':'local'),

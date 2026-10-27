@@ -16,7 +16,7 @@ The existing work/place/vendor/material breakdowns and stage hierarchy endpoints
 
 Optional bill-line fields are `costHeadId`, `costSubheadId`, `costDetailId`, `costNature`, `unitId`, `quantityUnitId` and `multiplier`. Store taxonomy nodes in `settings.costCatalog`; do not replace the work-stage `settings.catalog`. State commits validate category ancestry, immutable identities, bounded catalog size, known units and exact audited edits. Category changes use `cost_catalog` audit records with exact `catalogChanges` before/after entity evidence. Existing full before/after catalog audit snapshots remain accepted. Existing commit revisions, idempotency keys and file verification requirements remain unchanged.
 
-Default `AUTH_MODE=local` on `127.0.0.1` does **not** require login or a session. `GET /api/v1/session` responds with `authenticated: true, auth: not_required`. `POST /api/v1/login` returns 404 because it is unnecessary. The entire API remains inaccessible when bound to a non-local interface in this mode. `AUTH_MODE=owner` retains the password-based API described below.
+Default `AUTH_MODE=local` on `127.0.0.1` does **not** require login or a session. `GET /api/v1/session` responds with `authenticated: true, auth: not_required`. `POST /api/v1/login` returns 404 because it is unnecessary. The entire API remains inaccessible when bound to a non-local interface in this mode. `AUTH_MODE=owner` retains the password-based API described below. Public owner requests require HTTPS from an explicitly trusted proxy; see [transport configuration](SQLITE_DEPLOYMENT.md#network-deployment). Only `GET /api/v1/health` is exempt for HTTP readiness probes.
 
 ---
 
@@ -31,7 +31,7 @@ npm run setup
 npm run dev
 ```
 
-Open `http://127.0.0.1:8080` and sign in. Read the owner password printed by `npm run setup`; keep it private. SQLite records and original uploaded bytes are stored in `data/buildledger.sqlite`. Do not copy that database alone while the service is running with WAL.
+Open `http://127.0.0.1:8080`; default local mode needs no login. For a new local installation that needs owner authentication, use `npm run setup:secure` instead of `npm run setup`, and retain the generated password privately. Both setup commands preserve an existing `.env`. SQLite records and original uploaded bytes are stored in `data/buildledger.sqlite`. Do not copy that database alone while the service is running with WAL.
 
 ## Authentication
 
@@ -61,13 +61,17 @@ All financial values in responses are integers representing **paise**. Dates are
 
 Activity search `q` accepts at most 200 characters; `type` accepts at most 80. `limit` and `offset` must be non-negative integers. Results are capped at 200 per request; the maximum offset is 1,000,000. Invalid inputs return HTTP 400 before reading project data.
 
+SQLite reads the revision, exact filtered `count` and bounded `items` in one read transaction. Events sort by recorded timestamp descending, then event type and ID ascending using binary text order. Missing or invalid historical timestamps sort as epoch zero. Search remains a literal, case-insensitive match across label, party, work and displayed date; `%` and `_` are literal characters. Exact search counts still scan matching candidate records, and large offsets still require walking preceding index entries. The complete `/state` endpoint remains available for backups.
+
+The browser and server share restore checks: project budget and revision must be nonnegative safe integers, and a nonempty plan `contractId` must reference a restored contract. Standalone plans remain valid. Invalid metadata is rejected before replacing records or originals.
+
 ## Typed record posting
 
 - `POST /api/v1/bills` — `{ "record": { "id": "uuid", "vendor": "Supplier", "title": "Sump steel", "date": "2026-10-11", "recordedAt": "...UTC...", "total": 125000, "lines": [{"label":"12 mm TMT", "mode":"amount", "directAmountPaise":125000,"value":125000,"qty":null,"rate":null,"unit":null,"work":"Sump & excavation"}], "type": "purchase", "extras":0,"tax":0,"discount":0 }, "key":"uuid" }`
 - `POST /api/v1/payments` — `{ "record": {"id":"uuid","vendor":"Supplier","amount":50000,"date":"2026-10-11","recordedAt":"..."},"allocations":[{"billId":"existing-bill-uuid","amount":50000}],"key":"uuid" }`. Validated against outstanding invoice amount.
 - `POST /api/v1/plans` — `{ "record": {"id":"uuid","vendor":"Engineer","title":"Stage 2","amount":3125000,"due":"2026-11-15","recordedAt":"..."},"key":"uuid" }`. Planning doesn't post a cash payment.
 
-The `key` is an idempotency token. In SQLite and MongoDB modes, replaying the *same* create request with the same key returns the original successful revision; changing the payload under an existing key returns HTTP 409. The full-source `POST /commit` also supports versioned idempotency for the website's bulk/composite operations.
+The `key` is an idempotency token. In SQLite server mode, replaying the *same* create request with the same key returns the original successful revision; changing the payload under an existing key returns HTTP 409. The full-source `POST /commit` also supports versioned idempotency for the website's bulk/composite operations.
 
 ## Uploaded original files
 
@@ -79,7 +83,7 @@ The `key` is an idempotency token. In SQLite and MongoDB modes, replaying the *s
 
 ## Errors
 
-`401`: unauthenticated; `403`: rejected origin; `409`: version or idempotency conflict; `413`: request/upload too large; `422`: validation, allocation, file integrity or financial errors; `503`: storage unavailable. JSON body `{ "code":"ERROR_CODE", "message":"Safe explanation" }`. The browser surfaces these errors without silently switching from SQLite to a different database.
+`401`: unauthenticated; `403`: rejected origin or insecure/untrusted transport; `409`: version or idempotency conflict; `413`: request/upload too large; `422`: validation, allocation, file integrity or financial errors; `503`: storage unavailable. JSON body `{ "code":"ERROR_CODE", "message":"Safe explanation" }`. The browser surfaces these errors without silently switching from SQLite to a different database.
 
 ## Storage schema
 

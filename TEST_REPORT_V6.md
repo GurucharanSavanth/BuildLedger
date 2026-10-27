@@ -2,7 +2,7 @@
 
 ## Automated tests
 - `npm test`
-- Result: 24 tests total, 23 passed, 1 skipped (optional MongoDB integration), 0 failed.
+- Result: 23 passed, 0 failed in this historical run. Current SQLite-only checks are recorded in TEST_REPORT_SQLITE.md.
 
 ### Added / relevant coverage
 - Segmentation remains stable with many categories and blank labels.

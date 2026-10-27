@@ -20,7 +20,7 @@ function fixture(){
 test('classified SQLite restart and API cost/stage reports reconcile',async()=>{
  const dir=await mkdtemp(path.join(tmpdir(),'buildledger-v8-storage-')),db=path.join(dir,'ledger.sqlite');let store=new SqliteStore(db),server;
  try{
-  await store.start();const s=fixture();changeCostCategory(s,'cost-03',{label:'Electrical renamed'});s.rev=1;
+  await store.start();await store.createProject('Storage fixture');const s=fixture();changeCostCategory(s,'cost-03',{label:'Electrical renamed'});s.rev=1;
   await store.commit({expectedRev:0,state:s,key:uid()});await store.close();store=new SqliteStore(db);await store.start();
   const saved=await store.read();assert.deepEqual(saved,s);
   server=createHttpApp({store,host:'127.0.0.1',storeMode:'sqlite',authMode:'local'});await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;

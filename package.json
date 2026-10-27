@@ -12,8 +12,5 @@
     "start": "node --env-file-if-exists=.env server/http.mjs",
     "test": "node --test tests/*.test.mjs tests/server/*.test.mjs",
     "local": "node dev-server.mjs"
-  },
-  "optionalDependencies": {
-    "mongodb": "^6.21.0"
   }
 }

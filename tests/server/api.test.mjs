@@ -1,10 +1,11 @@
-import test from 'node:test';import assert from 'node:assert/strict';
+import test from 'node:test';import assert from 'node:assert/strict';import http from 'node:http';
 import {createHttpApp} from '../../server/http.mjs';import {emptyState,uid} from '../../finance.js';import {sha256,checkState,CHUNK_SIZE} from '../../server/core.mjs';import {validateFileMutation} from '../../server/invariants.mjs';
 import {activity,timeline} from '../../server/domain.mjs';
 
 class TestStore{
  constructor(){this.st=emptyState();this.assets=new Map();this.uploads=new Map();this.ops=new Map()}
  async read(){return structuredClone(this.st)}
+ async activity(options){return activity(this.st,options)}
  async startUpload(x){const uploadId=uid();this.uploads.set(uploadId,{meta:x,chunks:new Map()});return {uploadId,numChunks:Math.ceil(x.size/CHUNK_SIZE),chunkBytes:CHUNK_SIZE}}
  async putChunk(id,n,b){const x=this.uploads.get(id);if(!x)throw Object.assign(Error('Not found'),{status:404});x.chunks.set(n,Buffer.from(b))}
  async finishUpload(id){const u=this.uploads.get(id);const data=Buffer.concat([...u.chunks.entries()].sort((a,b)=>a[0]-b[0]).map(x=>x[1]));if(data.length!==u.meta.size||sha256(data)!==u.meta.sha256)throw Object.assign(Error('Checksum mismatch'),{status:422});u.complete=true;u.buf=data;return {verified:true}}
@@ -14,7 +15,25 @@ class TestStore{
 }
 async function makeApp(){const store=new TestStore();const app=createHttpApp({store,password:'TestPassword-DontUse',secret:'d'.repeat(48)});await new Promise(r=>app.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+app.address().port;return {store,app,base,close:()=>new Promise(r=>app.close(r))}}
 async function request(base,path,method='GET',data=null,cookie=''){let hdr={'Origin':base};if(cookie)hdr.Cookie=cookie;if(data!==null&&!Buffer.isBuffer(data))hdr['Content-Type']='application/json';let res=await fetch(base+path,{method,headers:hdr,body:data===null?undefined:Buffer.isBuffer(data)?data:JSON.stringify(data)});let type=res.headers.get('content-type')||'';return {res,data:type.includes('json')?await res.json():Buffer.from(await res.arrayBuffer())}}
+function loginFromAddress(base,localAddress,password='wrong'){const url=new URL('/api/v1/login',base);return new Promise((resolve,reject)=>{const req=http.request({hostname:url.hostname,port:url.port,path:url.pathname,method:'POST',localAddress,agent:false,headers:{Origin:base,'Content-Type':'application/json'}},res=>{res.resume();res.on('end',()=>resolve({status:res.statusCode,cookie:res.headers['set-cookie']?.[0]?.split(';')[0]}))});req.once('error',reject);req.end(JSON.stringify({password}))})}
+function testAddress(secondOctet,index){return `127.${secondOctet}.${Math.floor(index/255)}.${index%255+1}`}
 async function auth(x){let r=await request(x.base,'/api/v1/login','POST',{password:'TestPassword-DontUse'});assert.equal(r.res.status,200);return r.res.headers.get('set-cookie').split(';')[0]}
+
+test('concurrent incomplete login bodies cannot reuse the same failed-attempt counter',async()=>{
+ const x=await makeApp();try{
+  const pending=[];let seen=0,ready;const received=new Promise(resolve=>{ready=resolve});
+  x.app.on('request',()=>{if(++seen===8)ready()});
+  const responses=Array.from({length:8},()=>new Promise((resolve,reject)=>{
+   const url=new URL(x.base),req=http.request({hostname:url.hostname,port:url.port,path:'/api/v1/login',method:'POST',agent:false,headers:{Origin:x.base,'Content-Type':'application/json'}},res=>{res.resume();res.once('end',()=>resolve(res.statusCode))});
+   req.once('error',reject);req.write('{"password":');pending.push(req);
+  }));
+  await received;for(const req of pending)req.end('"wrong"}');
+  const statuses=await Promise.all(responses);
+  assert.equal(statuses.filter(status=>status===401).length,5);
+  assert.equal(statuses.filter(status=>status===429).length,3);
+  assert.equal((await request(x.base,'/api/v1/login','POST',{password:'wrong'})).res.status,429);
+ }finally{await x.close()}
+});
 
 test('activity validates pagination and bounded search before reading project data',async()=>{const x=await makeApp();try{
  const cookie=await auth(x);let reads=0;const read=x.store.read.bind(x.store);x.store.read=()=>{reads++;return read()};
@@ -47,6 +66,24 @@ test('API sign-in, domain bills, payment settlement, analytics, conflict, access
  const stale=await request(x.base,'/api/v1/commit','POST',{expectedRev:0,state:emptyState(),key:uid()},cookie);assert.equal(stale.res.status,409); // stale write conflicts with another device
  const over={...pay,id:uid(),amount:180000};r=await request(x.base,'/api/v1/payments','POST',{record:over,allocations:[{billId:bill.id,amount:180000}],key:uid()},cookie);assert.equal(r.res.status,422); // invalid overpayment rejected
  }finally{await x.close()}});
+test('owner authentication bounds failed-address and active-session tracking',async()=>{const x=await makeApp();try{
+ for(let i=0;i<5;i++)assert.equal((await loginFromAddress(x.base,'127.0.0.2')).status,401);
+ assert.equal((await loginFromAddress(x.base,'127.0.0.2')).status,429);
+ for(let i=0;i<256;i++)assert.equal((await loginFromAddress(x.base,testAddress(1,i))).status,401);
+ assert.equal((await loginFromAddress(x.base,'127.0.0.2')).status,429,'tracked lockout should survive address-map saturation');
+ for(let i=256;i<259;i++)assert.equal((await loginFromAddress(x.base,testAddress(1,i))).status,401);
+ assert.equal((await loginFromAddress(x.base,testAddress(1,259))).status,429,'untracked addresses should share the overflow cooldown');
+ assert.equal((await loginFromAddress(x.base,testAddress(3,0),'TestPassword-DontUse')).status,200,'valid owner sign-in should pass during overflow cooldown');
+ assert.equal((await loginFromAddress(x.base,testAddress(1,260))).status,429,'valid sign-in should not clear the shared overflow cooldown');
+ let oldestCookie;
+ for(let i=0;i<257;i++){
+  const result=await loginFromAddress(x.base,testAddress(2,i),'TestPassword-DontUse');
+  assert.equal(result.status,200);
+  if(i===0)oldestCookie=result.cookie;
+ }
+ const session=await request(x.base,'/api/v1/session','GET',null,oldestCookie);
+ assert.equal(session.data.authenticated,false,'oldest active session should be evicted at the configured bound');
+}finally{await x.close()}});
 test('file chunk upload, server inline view, explicit delete and backup integrity',async()=>{const x=await makeApp();try{
  let cookie=await auth(x);const file=Buffer.from('%PDF-1.7\nOriginal approved footing drawing.');let id=uid(),sha=sha256(file);
  let start=(await request(x.base,'/api/v1/uploads/start','POST',{id,name:'Footing_R2.pdf',sha256:sha,size:file.length,type:'application/pdf'},cookie)).data;

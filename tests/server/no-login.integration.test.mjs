@@ -25,6 +25,7 @@ test('Local user enters dashboard and SQLite data directly without login or pass
  assert.equal((await req(base,'/api/v1/dashboard')).status,200);
  assert.equal((await req(base,'/api/v1/documents')).status,200);
  let login=await req(base,'/api/v1/login',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify({password:'not needed'})});assert.equal(login.status,404);
+ let project=await req(base,'/api/v1/projects',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify({name:'Local construction'})});assert.equal(project.status,201);
  const bill={id:uid(),vendor:'Local supplier',title:'Excavation expense',date:'2026-10-11',recordedAt:new Date().toISOString(),total:280000,lines:[{label:'Excavation',mode:'amount',directAmountPaise:280000,value:280000,qty:null,rate:null,unit:null,work:'Sump & excavation'}],type:'purchase',extras:0,tax:0,discount:0};
  const r=await req(base,'/api/v1/bills',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify({record:bill,key:uid()})});assert.equal(r.status,201,JSON.stringify(r.value));
  const dash=await req(base,'/api/v1/dashboard');assert.equal(dash.value.totals.invoiced,280000);
@@ -37,6 +38,7 @@ test('No-login rejects remote host configuration, spoofed Host, and cross-origin
  await appOnLoopback(async(base)=>{
   const badHost=await new Promise((resolve,reject)=>{const u=new URL('/api/v1/health',base);const r=httpRequest({hostname:u.hostname,port:u.port,path:u.pathname,headers:{Host:'some-untrusted-domain.example'}},res=>{res.resume();res.on('end',()=>resolve(res.statusCode))});r.on('error',reject);r.end()});assert.equal(badHost,403);
   const proxy=await fetch(base+'/api/v1/health',{headers:{'X-Forwarded-For':'192.0.2.1'}});assert.equal(proxy.status,403);
+  const proto=await fetch(base+'/api/v1/health',{headers:{'X-Forwarded-Proto':'https'}});assert.equal(proto.status,403);
   const cross=await fetch(base+'/api/v1/commit',{method:'POST',headers:{Origin:'https://malicious.example','Content-Type':'application/json'},body:'{}'});assert.equal(cross.status,403);
  });
 });

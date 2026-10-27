@@ -42,16 +42,18 @@ Replace `YOUR_GITHUB_USERNAME`. Complete the GitHub authentication in your brows
 
 Confirm that `.env`, database files (`data/*.sqlite`, `*-wal`, `*-shm`), backup archives, customer photos and other private project data are **not** listed in `git status` or published in the repository. `.gitignore` covers common secrets and local databases, but review staged files manually.
 
-The `.github/workflows/test.yml` workflow runs Node code checks and automated tests after every push. The optional MongoDB test is skipped unless you configure a disposable replica set.
+The `.github/workflows/test.yml` workflow runs Node code checks and automated tests after every push. The suite includes real disposable SQLite persistence and HTTP integration tests. See [SQLITE_DEPLOYMENT.md](SQLITE_DEPLOYMENT.md) for database configuration.
 
 ## 3. Deploy frontend AND backend to Render
+
+This historical recipe is **not a verified public release configuration**. The server now requires `TRUSTED_PROXY_IPS` to list exact TLS-proxy socket peer addresses. Before using Render, obtain and verify a stable incoming peer list and confirm the proxy overwrites `X-Forwarded-Proto` and preserves the public `Host`. Render's published outbound IP ranges are not that list. If the provider cannot satisfy this contract, use a controlled HTTPS proxy with known peers as described in [SQLite deployment](SQLITE_DEPLOYMENT.md#network-deployment).
 
 **Do not use GitHub Pages for the full application.** GitHub Pages provides static files, not a continuously running Node HTTP API or durable server-side SQLite storage. Using static-only mode would leave records isolated to individual browsers.
 
 1. Sign in to https://dashboard.render.com.
 2. Click **New → Web Service**, connect GitHub, and select your `BuildLedger` repository.
 3. Runtime: **Node**. Branch: `main`.
-4. Build command: `npm install --omit=optional` (or use Render's default Node dependency installer).
+4. Build command: `npm ci` (or use Render's default Node dependency installer).
 5. Start command: `npm start`.
 6. Choose a **paid web service with a persistent disk**. Render Free web services cannot attach the durable disk used by this SQLite configuration.
 7. In Advanced / Disk, add a persistent disk with mount path `/var/data`; choose enough storage for original CAD drawings, images and the SQLite database. **Only content under this mount path persists across redeploys.**
@@ -67,6 +69,7 @@ The `.github/workflows/test.yml` workflow runs Node code checks and automated te
 | `NODE_VERSION` | `24.21.0` (or let `.node-version` supply it) |
 | `ADMIN_PASSWORD` | A unique long owner password, at least 12 characters. Use a password manager. |
 | `APP_COOKIE_SECRET` | An independent random secret at least 32 characters; ideally 64 hexadecimal characters. |
+| `TRUSTED_PROXY_IPS` | Verified exact IPs of the incoming HTTPS proxy peers, comma-separated; no hostnames, CIDR ranges or browser IPs. Do not deploy this recipe without this prerequisite. |
 
 Generate a random cookie secret **locally** in PowerShell if needed:
 
@@ -106,7 +109,7 @@ Render normally starts a deployment on a new GitHub commit. Preserve the Render 
 
 - Do not host SQLite on an ephemeral filesystem: a redeploy could erase your records.
 - The owner-password mode is basic single-owner access, **not** complete identity management, multi-factor authentication, role permissions or a multi-user system.
-- Validate HTTPS cookies and login/session handling through the actual provider's reverse proxy, not just localhost tests.
+- Validate exact proxy peers, HTTPS cookies and login/session handling through the actual provider's reverse proxy. Configure HTTP health checks to use `/api/v1/health`; public HTTP login and project routes remain blocked.
 - Maintain off-host, tested encrypted backups and a written recovery procedure. Persistent disks alone are not enough.
 - Test with the real browser and hosted HTTPS server (upload/preview/delete CAD/PDF/photo, record partial payments, create categories, check backup/restore and mobile scaling) before real financial use.
 - Monitor server logs, filesystem usage and disk space. Large-file uploads have explicit size limits.
@@ -118,3 +121,4 @@ Render normally starts a deployment on a new GitHub commit. Preserve the Render 
 - [Render persistent disks](https://render.com/docs/disks)
 - [Render Node version configuration](https://render.com/docs/node-version)
 - [Render environment variables](https://render.com/docs/configure-environment-variables)
+- [Render HTTP health checks](https://render.com/docs/health-checks)

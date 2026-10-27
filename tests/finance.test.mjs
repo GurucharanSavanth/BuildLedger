@@ -1,4 +1,17 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {paise,lineTotal,billTotal,emptyState,verifyState,dueForBill,availableForPayment,dueForPlan,breakdown,breakdownDetailed,monthlyTotals,summary,proportional,displayMoney,inputMoney,eventList,checkNewPayment} from '../finance.js';
+
+test('linked instalments require the contract supplier at every state validation boundary',()=>{
+ const state=emptyState();state.contracts=[{id:'agreement',vendor:' Supplier A ',amount:12345}];
+ state.plans=[{id:'instalment',contractId:'agreement',vendor:'supplier a',amount:12345,due:'2026-10-26'}];
+ assert.equal(verifyState(state),true);
+ state.plans[0].vendor='Supplier B';assert.throws(()=>verifyState(state),/supplier does not match linked contract/);
+ state.plans[0].vendor='';assert.equal(verifyState(state),true);
+ assert.throws(()=>checkNewPayment(state,{vendor:'Supplier B',amount:12345,planId:'instalment'}),/recipient does not match/);
+ assert.doesNotThrow(()=>checkNewPayment(state,{vendor:'Supplier A',amount:12345,planId:'instalment'}));
+ state.payments=[{id:'cash',vendor:'Supplier B',amount:12345,planId:'instalment'}];assert.throws(()=>verifyState(state),/differs from linked instalment/);
+ state.payments=[];
+ state.plans[0].vendor='Supplier A';assert.equal(summary(state).invoiced,0);assert.equal(summary(state).paid,0);
+});
 test('integer paise and exact quantity arithmetic',()=>{assert.equal(paise('1,234.56'),123456);assert.equal(lineTotal('2.500','100.25'),25063);assert.equal(billTotal([{qty:'2.500',rate:'100.25'}],101,0,1),25163);assert.throws(()=>paise('1.123'));assert.throws(()=>paise('-5'))});
 test('invoice payments and cash are not costs twice',()=>{const s=emptyState();s.bills=[{id:'b',total:50000,title:'Sump steel',lines:[{label:'Steel',qty:'1',rate:'500.00',unit:'kg',work:'Sump',place:'Site',value:50000}]}];s.payments=[{id:'p',amount:20000},{id:'p2',amount:15000}];s.allocations=[{id:'a',paymentId:'p',billId:'b',amount:20000}];verifyState(s);assert.equal(dueForBill(s,'b'),30000);assert.equal(availableForPayment(s,'p2'),15000);assert.equal(summary(s).invoiced,50000);assert.equal(summary(s).paid,35000);assert.equal(summary(s).owed,30000);assert.equal(summary(s).advances,15000)});
 test('invalid allocations and missing plan references fail closed',()=>{const s=emptyState();s.bills=[{id:'b',total:100}];s.payments=[{id:'p',amount:100}];s.allocations=[{id:'a',paymentId:'p',billId:'b',amount:101}];assert.throws(()=>verifyState(s));s.allocations[0].amount=100;s.payments[0].planId='missing';assert.throws(()=>verifyState(s))});
@@ -26,6 +39,29 @@ test('indexed settlement totals reject integer overflow for payments, bills and 
   else s.allocations=[{id:'a',paymentId:'p',billId:'b',amount:maximum},{id:'a2',paymentId:dimension==='payment'?'p':'p2',billId:'b',amount:1}];
   assert.throws(()=>verifyState(s),/Unsafe financial total/);
  }
+});
+test('posted aggregates and rolling 30-calendar-day outstanding plans stay safe',()=>{
+ const max=Number.MAX_SAFE_INTEGER,s=emptyState();
+ s.bills=[{id:'b1',total:max},{id:'b2',total:1}];assert.throws(()=>verifyState(s),/Unsafe financial total/);
+ s.bills=[];s.payments=[{id:'p1',amount:max},{id:'p2',amount:1}];assert.throws(()=>verifyState(s),/Unsafe financial total/);
+ s.payments=[];s.plans=[{id:'first',amount:max,due:'2026-01-01'},{id:'last',amount:1,due:'2026-01-31'}];
+ assert.throws(()=>verifyState(s),/Unsafe financial total/);
+ s.plans[1].due='2026-02-01';assert.equal(verifyState(s),true);
+ s.plans[1].due='2026-01-31';s.payments=[{id:'paid',amount:1,planId:'first'}];assert.equal(verifyState(s),true);
+ assert.equal(summary(s,new Date(2026,0,1,12)).planned,max);
+ s.payments=[];s.plans[1].cancelled=true;assert.equal(verifyState(s),true);
+});
+test('summary uses 30 local calendar days across daylight-saving changes',()=>{
+ const previous=process.env.TZ;process.env.TZ='America/New_York';
+ try{const s=emptyState();s.plans=[{id:'day30',amount:9000,due:'2026-04-06'},{id:'day31',amount:1100,due:'2026-04-07'}];
+  assert.equal(summary(s,new Date(2026,2,7,23)).planned,9000)}
+ finally{if(previous===undefined)delete process.env.TZ;else process.env.TZ=previous}
+});
+test('complete contract schedules include cancelled plans while incomplete schedules stay uncapped',()=>{
+ const s=emptyState();s.contracts=[{id:'complete',amount:300,scheduleComplete:true},{id:'incomplete',amount:100,scheduleComplete:false}];
+ s.plans=[{id:'a',contractId:'complete',amount:100,due:'2026-01-01',cancelled:true},{id:'b',contractId:'complete',amount:200,due:'2026-02-10'},
+  {id:'c',contractId:'incomplete',amount:Number.MAX_SAFE_INTEGER,due:'2026-03-20'},{id:'d',contractId:'incomplete',amount:1,due:'2026-05-01'}];
+ assert.equal(verifyState(s),true);s.plans[0].amount=99;assert.throws(()=>verifyState(s),/Contract instalments do not reconcile/);
 });
 test('schedule and cash never silently merge',()=>{const s=emptyState();const now=new Date(),date=now.toISOString().slice(0,10);s.plans=[{id:'plan',title:'Engineer',amount:3125000,due:date}];verifyState(s);assert.equal(summary(s,now).planned,3125000);assert.equal(summary(s,now).paid,0);s.payments=[{id:'pay',amount:1000000,planId:'plan'}];assert.equal(dueForPlan(s,'plan'),2125000);assert.equal(summary(s,now).paid,1000000)});
 test('split allocation totals exact and category rollups do not double count',()=>{assert.deepEqual(proportional(100,[1,1,1]),[33,33,34]);const s=emptyState();s.bills=[{id:'bill',total:100,lines:[{label:'A',work:'Sump',place:'Site',value:1},{label:'B',work:'Lift',place:'Site',value:1},{label:'C',work:'Sump',place:'Site',value:1}]}];const v=breakdown(s,'work');assert.equal(v.reduce((x,y)=>x+y[1],0),100)});

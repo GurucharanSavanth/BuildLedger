@@ -10,11 +10,63 @@ import * as analytics from '../cost-analytics.js';
 const source=(await readFile(new URL('../app.js',import.meta.url),'utf8')).split('\n').filter(line=>!line.startsWith('import ')).join('\n').replace(/start\(\);\s*$/,'');
 function harness(state=finance.emptyState()){
  const elements=new Map(),element=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',hidden:true,querySelector:()=>({focus(){}})});return elements.get(id)};
- const context=vm.createContext({...finance,...hierarchy,...catalog,...analytics,fixture:state,document:{getElementById:element,activeElement:null},hasPendingWrite:()=>false,FormData:class{constructor(form){this.values=form.values}entries(){return Object.entries(this.values)}}});
+ const context=vm.createContext({...finance,...hierarchy,...catalog,...analytics,fixture:state,document:{getElementById:element,activeElement:null},hasPendingWrite:()=>false,ownerAuthentication:()=>false,FormData:class{constructor(form){this.values=form.values}entries(){return Object.entries(this.values)}}});
  vm.runInContext(source,context);vm.runInContext('state=fixture',context);
  return {context,element,run:code=>vm.runInContext(code,context)};
 }
 const bill=(id,head=null)=>({id,title:'Site supplies',vendor:'Supplier',date:'2026-10-11',recordedAt:'2026-10-11T10:00:00Z',invoice:'INV-123',total:10000,lines:[{label:'Copper wire',place:'Kitchen',work:'Ground floor',substage:'Wiring',costHeadId:head,mode:'amount',directAmountPaise:10000,value:10000}]});
+
+test('zero-project actions preserve safe settings and block project-dependent navigation',async()=>{
+ const h=harness();
+ for(const action of ['new-plan','calendar','import-files','export-csv']){
+  h.context.event={target:{closest:selector=>selector.includes('[data-action]')?{dataset:{action}}:null}};
+  await h.run('actionClick(event)');
+  assert.equal(h.run('route'),'home');assert.equal(h.run('flow'),null);
+  assert.match(h.element('modal-inner').innerHTML,/Create a project before using BuildLedger/);
+  assert.match(h.element('modal-inner').innerHTML,/data-action="new-project"[^>]*>Create Project/);
+ }
+ assert.match(h.run('settings()'),/Developer: Gurucharan S\./);
+ assert.match(h.run('backupUI()'),/Create a project before using BuildLedger/);
+ h.context.event={target:{closest:selector=>selector==='[data-action]'||selector.includes(',')?{dataset:{action:'new-project'}}:null}};
+ await h.run('actionClick(event)');assert.match(h.element('modal-inner').innerHTML,/data-form="project-create"/);
+});
+
+test('owner sign-out revokes the session and removes displayed ledger state',async()=>{
+ const state=finance.emptyState();state.entries=[{id:'private',title:'Private note'}];const h=harness(state);let signedOut=0,locked=0;
+ h.context.ownerAuthentication=()=>true;h.context.logoutRemote=async()=>{signedOut++};h.context.clearInterval=()=>{};
+ h.context.confirm=()=>true;h.run("selectedProject='private-project';showSignIn=()=>{locked=true}");
+ assert.match(h.run('settings()'),/data-action="sign-out"/);
+ h.context.event={target:{closest:selector=>selector==='[data-action]'?{dataset:{action:'sign-out'}}:null}};
+ await h.run('actionClick(event)');locked=h.context.locked;
+ assert.equal(signedOut,1);assert.equal(locked,true);assert.equal(h.run('selectedProject'),null);
+ assert.equal(h.run('state.entries.length'),0);assert.equal(h.element('rail-nav').innerHTML,'');
+});
+
+test('project dialogs cannot disclose late pre-logout responses after owner sign-out',async()=>{
+ for(const action of ['projects','edit-project','prepare-project-delete']){
+  const h=harness();let release;h.context.listProjects=()=>new Promise(resolve=>{release=resolve});
+  h.context.activeProjectId=async()=>'private-project';h.context.projectDeletionSummary=async()=>({recordCount:1,attachmentCount:0,attachmentBytes:0});
+  h.context.logoutRemote=async()=>{};h.context.clearInterval=()=>{};h.context.confirm=()=>true;
+  h.run("selectedProject='private-project';showSignIn=()=>{}");
+  const event=key=>({target:{closest:selector=>selector==='[data-action]'?{dataset:{action:key,id:'private-project'}}:null}});
+  h.context.event=event(action);const loading=h.run('actionClick(event)');
+  h.context.event=event('sign-out');await h.run('actionClick(event)');
+  release([{id:'private-project',name:'Private project name',budget:12345,rev:0}]);await loading;
+  assert.equal(h.element('modal').hidden,true,action);assert.equal(h.element('modal-inner').innerHTML,'',action);
+  assert.equal(h.run('selectedProject'),null,action);
+ }
+});
+
+test('late failed saves retain recovery data without exposing it on the locked page',async()=>{
+ const h=harness();let rejectSave,banners=0;h.context.modify=()=>new Promise((resolve,reject)=>{rejectSave=reject});
+ h.context.hasPendingWrite=()=>true;h.context.logoutRemote=async()=>{};h.context.clearInterval=()=>{};h.context.confirm=()=>true;
+ h.run("selectedProject='private-project';showSignIn=()=>{};showPendingSave=()=>{bannerCount++}");h.context.bannerCount=0;
+ const saving=h.run('commit(()=>{})'),rejected=assert.rejects(saving,error=>error.code==='SAVE_UNCERTAIN');
+ h.context.event={target:{closest:selector=>selector==='[data-action]'?{dataset:{action:'sign-out'}}:null}};
+ await h.run('actionClick(event)');rejectSave(Object.assign(Error('Private retained save'),{code:'SAVE_UNCERTAIN'}));await rejected;
+ banners=h.context.bannerCount;assert.equal(banners,0);assert.equal(h.run('sessionLocked'),true);
+ assert.equal(h.context.hasPendingWrite(),true,'Signing out must preserve the durable unresolved save');
+});
 
 test('activity searches invoice, line descriptions, locations and categories with independent settlement filters',()=>{
  const s=finance.emptyState();s.bills=[bill('open','cost-03'),bill('settled','cost-05'),bill('legacy')];
@@ -23,7 +75,7 @@ test('activity searches invoice, line descriptions, locations and categories wit
  const h=harness(s),ids=()=>Array.from(h.run('filteredActivity().map(e=>e.id)'));
  h.run("activityFilter='bill';activityHead='cost-03'");assert.deepEqual(ids(),['open']);
  for(const query of ['INV-123','Copper wire','Kitchen','Electrical','Wiring']){h.context.query=query;h.run('activitySearch=query');assert.deepEqual(ids(),['open'])}
- h.run("activitySearch='';activityHead='';activityStatus='unpaid'");assert.deepEqual(ids(),['open','legacy']);
+ h.run("activitySearch='';activityHead='';activityStatus='unpaid'");assert.deepEqual(ids(),['legacy','open']);
  h.run("activityStatus='settled'");assert.deepEqual(ids(),['settled']);
  h.run("activityStatus='unclassified'");assert.deepEqual(ids(),['legacy']);
  h.run("activityFilter='All';activityStatus='overdue'");assert.deepEqual(ids(),['overdue']);
@@ -49,6 +101,18 @@ test('category quick search excludes inactive ancestors while retaining active d
  const s=finance.emptyState(),h=harness(s);assert.ok(h.run("categorySearchResults('OPC cement')").some(n=>n.label==='OPC cement'));
  catalog.changeCostCategory(s,'cost-05',{active:false});assert.equal(h.run("categorySearchResults('OPC cement').length"),0);
  catalog.changeCostCategory(s,'cost-05',{active:true});catalog.changeCostCategory(s,'cost-05-04',{active:false});assert.equal(h.run("categorySearchResults('OPC cement').length"),0);
+});
+
+test('new nested categories appear in hierarchy search and no-match offers inline creation',()=>{
+ const s=finance.emptyState();catalog.changeCostCategory(s,null,{label:'User project category',parentId:null});
+ const head=catalog.costCatalog(s).find(n=>n.label==='User project category');
+ catalog.changeCostCategory(s,null,{label:'Custom service',parentId:head.id});
+ const h=harness(s),matches=h.run("categorySearchResults('User project category Custom service')");
+ assert.ok(matches.some(n=>n.label==='Custom service'));
+ h.context.headId=head.id;assert.match(h.run('classificationFields({costHeadId:headId})'),/Custom service/);
+ const results={hidden:true,innerHTML:''},box={querySelector:()=>results},input={value:'new custom label',closest:()=>box};
+ h.context.input=input;h.run('searchClassification(input)');
+ assert.match(results.innerHTML,/data-create-cost-category/);
 });
 
 test('purchase preview agrees with posted multi-line calculations and shows each applied multiplier',()=>{

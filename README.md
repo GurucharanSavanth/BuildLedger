@@ -12,17 +12,20 @@ Browser document and attachment imports accept up to 25 MB per file. Larger file
 **Changes:** [CHANGELOG_V8.md](CHANGELOG_V8.md)
 
 **Testing:** [IMPLEMENTATION_REPORT_V8.md](IMPLEMENTATION_REPORT_V8.md)
+**22 October 2026 audit fixes and fresh verification:** [TEST_REPORT_AUDIT_FIXES_2026-10-22.md](TEST_REPORT_AUDIT_FIXES_2026-10-22.md)
 **REST endpoints:** [API_REFERENCE.md](API_REFERENCE.md)
+
+**Database setup:** [SQLITE_DEPLOYMENT.md](SQLITE_DEPLOYMENT.md). The server uses Node's built-in SQLite without an npm database driver. Browser-only preview uses IndexedDB and has independent storage.
 
 ### V8 expense classification
 
-Cost heads are independent of work stages. Add Entry supports direct amounts by default, independently classified invoice lines, optional quantity/rate calculations, explicit Sq Ft to SQ conversion and a visible multiplier. The default catalog contains all 19 construction expense heads, 186 subheads and 31 material/service details. Owner-created categories, units and descriptions can extend it; categories can be renamed, reordered and deactivated without losing their identity.
+Cost heads are independent of work stages. Add Entry supports direct amounts by default, independently classified invoice lines, optional quantity/rate calculations, explicit Sq Ft to SQ conversion and a visible multiplier. The default catalog contains all 19 construction expense heads, 186 subheads and 31 material/service details. Create a cost head, subhead or item from an unmatched category search; the new category is selected immediately and appears in Activity search. Categories can also be renamed, reordered and deactivated without losing their identity.
 
 Explore offers Cost Heads, Work Stages and cost-nature reports. Both hierarchies allocate the same recorded invoices, including freight, tax and discount, exactly once. Payments, supplier advances, agreements and future instalments remain separate. Historical invoices without a classification remain in Unclassified / Legacy until deliberately edited with an audit record.
 
-In Categories, choose Cost Heads or Work Stages. Cost catalog changes retain precise audit evidence. Source invoice details and CSV exports show classification, calculation and financial evidence. Optional contract quotations use the same exact calculator; a quoted agreement creates commitments and planned instalments, not invoices.
+In Categories, choose Cost Heads or Work Stages. Work categories can also be created from stage selectors and are selected immediately, including on individual invoice lines. Cost catalog changes retain precise audit evidence. Source invoice details and CSV exports show classification, calculation and financial evidence. Optional contract quotations use the same exact calculator; a quoted agreement creates commitments and planned instalments, not invoices.
 
-Schema 1 remains unchanged. IndexedDB, SQLite and MongoDB keep the optional fields in their existing state/record JSON. Encrypted backups preserve the catalog, classifications, audits and original files. Old backups remain readable; opening them does not silently classify their expenses. Downgrading to an older application is not supported for new calculation metadata.
+Schema 1 remains unchanged. IndexedDB and SQLite keep the optional fields in their existing state/record JSON. Encrypted backups preserve the catalog, classifications, audits and original files. Old backups remain readable; opening them does not silently classify their expenses. Downgrading to an older application is not supported for new calculation metadata.
 
 See [CHANGELOG_V8.md](CHANGELOG_V8.md) and [IMPLEMENTATION_REPORT_V8.md](IMPLEMENTATION_REPORT_V8.md) for changes, test commands and remaining limits. Deployment requirements in the V7 guide still apply: static hosting uses only IndexedDB; the full API needs Node, persistent storage, authentication for network access and HTTPS.
 
@@ -52,7 +55,7 @@ Python browser scripts require `playwright`, Chromium and an appropriate test en
 
 In **Explore → Stage → substage → material**, choose a stage, then a work package/substage, then a material, then the original source invoice. Use the breadcrumb to navigate back. All financial amounts are integer paise and reconcile to the source invoice totals, including proportional allocation of documented tax, freight and discount.
 
-In **Explore → + Categories**, add a custom stage and substage. Future material purchases can use them through **Add Entry → Bought materials → Work stage / Substage**. Other expenses and wage/service bills also have an optional substage field. Existing records without one remain in `Not specified`; old invoices are never silently rewritten.
+Add a custom stage and substage from **Explore → + Categories** or directly from a work stage selector. The selected stage and substage are available immediately and in later entries. Future material purchases can use them through **Add Entry → Bought materials → Work stage / Substage**. Other expenses and wage/service bills also have an optional substage field. Existing records without one remain in `Not specified`; old invoices are never silently rewritten.
 
 This hierarchy shows **recorded bill costs**, not cash outflow or construction progress. Separate summaries track actual money paid, outstanding liabilities and future planned payments. Statistical clustering is not yet implemented, and no fake ML-generated work groupings are displayed.
 
@@ -61,7 +64,7 @@ This hierarchy shows **recorded bill costs**, not cash outflow or construction p
 - Home: cash paid, bills owed, upcoming payment plans, category breakdown and activity.
 - Add Entry: purchases with optional quantity/unit/rate and direct-amount default, partial/full/unpaid status, labour, other bills, payments, supplier advances, contracts and engineer instalments, notes/timer.
 - Activity: timestamped event history, search, filters and CSV export.
-- Files: original PDF/photo/DWG/DXF and other binary files (current single-file import cap 250 MiB), metadata, drawing revisions, in-app supported previews, explicit download/share, deleting original with audit.
+- Files: original PDF/photo/DWG/DXF and other binary files (browser import cap 25 MB per file; direct API upload cap 250 MiB), metadata, drawing revisions, in-app supported previews, explicit download/share, deleting original with audit.
 - Explore: categorical charts, hierarchy, month-by-month cash paid and payment calendar.
 - Backup & Restore: password-encrypted archive of records and original uploaded files. The browser determines file saving location.
 - SQLite: persistence through `server/http.mjs` and `server/sqlite-store.mjs` with API-level conflict detection, duplicate posting keys and atomic source file updates.
@@ -70,7 +73,7 @@ This hierarchy shows **recorded bill costs**, not cash outflow or construction p
 
 - `.env` and `data/` are private and ignored by Git. The distributed ZIP **does not contain a live project database**.
 - **Do not overwrite your local `data/` directory or `.env` when upgrading.** Make a verified backup first.
-- For **any public/network deployment**, change to `AUTH_MODE=owner`, configure owner password and cookie secret, and use HTTPS. Password-free mode explicitly refuses network hosting.
+- For **any public/network deployment**, change to `AUTH_MODE=owner`, configure owner password and cookie secret, and use HTTPS through a proxy whose exact socket peer IPs are listed in `TRUSTED_PROXY_IPS`. Public HTTP and untrusted forwarded HTTPS headers are rejected. See [SQLite deployment](SQLITE_DEPLOYMENT.md#network-deployment) for the proxy contract. Password-free mode explicitly refuses network hosting.
 - A static GitHub Pages deployment cannot provide the Node API and durable SQLite storage. For this full stack, use a Node web service with **persistent disk**; see the deployment guide.
 - The built-in encrypted export is portable but is not an automatic offsite backup. Test restoration periodically.
 - No automatic synchronisation exists between browser-only (`npm run local`) and SQLite server mode. Do not switch storage modes expecting your entries to follow.
@@ -109,7 +112,7 @@ For local testing, install `selenium==4.47.0`, start `node scripts/browser-test-
 
 ### Faster expense entry and finding records (8.1)
 
-Search **Find a category** to select a complete category path. The live preview shows the recorded bill cost separately from money paid and the remaining balance. Optional calculators use the same exact paise helpers as posting; the final review remains required. Possible duplicate invoices produce a review warning, not an automatic merge or deletion.
+Search **Find a category** to select a complete category path. If nothing matches, create a head, subhead or item from the search prompt; the current parent determines where it is added. New cost and work category names are searchable in Activity. The live preview shows the recorded bill cost separately from money paid and the remaining balance. Optional calculators use the same exact paise helpers as posting; the final review remains required. Possible duplicate invoices produce a review warning, not an automatic merge or deletion.
 
 Activity includes unpaid, unclassified, overdue-plan and settled filters, cost-head selection, date ranges, and matching-record totals. Cost-head matching includes classified agreements and plans; bill totals represent whole matching invoices. Use Explore for individual classified line costs. **Show 75 more** reaches older records, and **Clear filters** resets the view. CSV export still exports all records and is labeled accordingly.
 

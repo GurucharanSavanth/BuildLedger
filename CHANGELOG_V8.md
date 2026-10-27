@@ -8,7 +8,7 @@
 - Added optional area/rate agreement quotations and exact instalment splitting. Agreement edits propagate classification to linked plans; deleting an instalment retains commitment and audits that its schedule is incomplete.
 - Added cost-head and cost-nature views, invoice tracing, linked upcoming instalments/agreements, source details, readable category/reclassification audits and formula-safe detailed CSV exports with distinct financial columns.
 - Extended read APIs and frontend/offline asset allowlists. Retained schema 1 and existing database/backup formats and file integrity safeguards.
-- Added targeted catalog, financial, analytics, storage, export, Mongo collection-contract and real-browser regressions. Updated CI to check new modules and run V8 browser scenarios.
+- Added targeted catalog, financial, analytics, storage, export and real-browser regressions. Updated CI to check new modules and run V8 browser scenarios.
 
 No prices, statutory charges, density assumptions or automatic historical classifications were introduced. No live database, `.env`, credentials or deployment was changed. See the implementation report for exact verification and limitations.
 

@@ -9,11 +9,7 @@ export function safeName(s){if(typeof s!=='string')throw Error('Invalid filename
 export function checkState(next){
  verifyState(next);
  const bytes=Buffer.byteLength(JSON.stringify(next));if(bytes>MAX_STATE_BYTES)throw Error('Project metadata exceeds safe limit (12MB). Export an archive and contact administrator.');
- if(!Number.isSafeInteger(next.rev)||next.rev<0)throw Error('Invalid project revision');
- if(!Number.isSafeInteger(next.project.budget)||next.project.budget<0)throw Error('Invalid project budget');
  const fids=new Set();for(const f of next.files){if(!validId(f.id))throw Error('Invalid file ID');if(fids.has(f.id))throw Error('Duplicate file ID');fids.add(f.id);if(typeof f.name!=='string'||!f.name||!Number.isSafeInteger(f.size)||f.size<0||f.size>MAX_FILE_SIZE)throw Error('Invalid file metadata');}
- for(const p of next.payments){if(p.planId){const plan=next.plans.find(x=>x.id===p.planId);if(!plan)throw Error('Payment references unknown plan');if(p.vendor.trim().toLocaleLowerCase()!==plan.vendor.trim().toLocaleLowerCase())throw Error('Payment recipient differs from linked instalment recipient');}}
- for(const a of next.allocations){const p=next.payments.find(x=>x.id===a.paymentId),b=next.bills.find(x=>x.id===a.billId);if(p&&b&&p.vendor.trim().toLocaleLowerCase()!==b.vendor.trim().toLocaleLowerCase())throw Error('Payment recipient does not match bill vendor')}
  return true;
 }
 export function matchFile(meta,uploaded){return meta?.id===uploaded?.id && meta?.sha256===uploaded?.sha256 && meta?.size===uploaded?.size && meta?.type===uploaded?.type}

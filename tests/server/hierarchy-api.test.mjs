@@ -9,7 +9,7 @@ import {uid} from '../../finance.js';
 
 test('SQLite hierarchy API persists substage path and allows exact leaf bill drilldown',async()=>{
  const folder=await mkdtemp(path.join(tmpdir(),'buildledger-hierarchy-'));
- const store=new SqliteStore(path.join(folder,'data.sqlite'));await store.start();
+ const store=new SqliteStore(path.join(folder,'data.sqlite'));await store.start();await store.createProject('Hierarchy fixture');
  const server=createHttpApp({store,host:'127.0.0.1',storeMode:'sqlite',authMode:'local'});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const base=`http://127.0.0.1:${server.address().port}`;

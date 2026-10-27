@@ -66,7 +66,7 @@ test('advance allocation edits and deletes update due balances without changing 
 });
 
 test('SQLite rejects missing replacement originals and restores SVG backup with audited changes',async()=>{
- const dir=await mkdtemp(path.join(tmpdir(),'buildledger-regression-')),store=new SqliteStore(path.join(dir,'test.sqlite'));await store.start();let app;
+ const dir=await mkdtemp(path.join(tmpdir(),'buildledger-regression-')),store=new SqliteStore(path.join(dir,'test.sqlite'));await store.start();await store.createProject('Audit regression');let app;
  try{
   const bytes=Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'),id=uid(),meta={id,name:'plan.svg',type:'image/svg+xml',size:bytes.length,sha256:sha256(bytes)};
   const upload=await store.startUpload(meta);await store.putChunk(upload.uploadId,0,bytes);await store.finishUpload(upload.uploadId);

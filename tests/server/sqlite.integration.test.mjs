@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,rm,stat} from 'node:fs/promises';import {tmpdir} from 'node:os';import path from 'node:path';
 import {SqliteStore} from '../../server/sqlite-store.mjs';import {createHttpApp} from '../../server/http.mjs';import {emptyState,uid} from '../../finance.js';import {sha256,CHUNK_SIZE} from '../../server/core.mjs';
 const safeErr=msg=>{const e=Error(msg);e.status=422;return e};
-async function withStore(fn){const dir=await mkdtemp(path.join(tmpdir(),'buildledger-sqlite-')),dbPath=path.join(dir,'records.sqlite'),store=new SqliteStore(dbPath);await store.start();try{await fn(store,dbPath)}finally{await store.close();await rm(dir,{recursive:true,force:true})}}
+async function withStore(fn){const dir=await mkdtemp(path.join(tmpdir(),'buildledger-sqlite-')),dbPath=path.join(dir,'records.sqlite'),store=new SqliteStore(dbPath);await store.start();await store.createProject('SQLite integration');try{await fn(store,dbPath)}finally{await store.close();await rm(dir,{recursive:true,force:true})}}
 function bill(amount=125000){return {id:uid(),vendor:'Steel Supplier',title:'Sump steel direct amount',date:'2026-10-11',recordedAt:new Date().toISOString(),total:amount,lines:[{label:'12mm TMT steel',mode:'amount',directAmountPaise:amount,value:amount,qty:null,rate:null,unit:null,work:'Sump & excavation'}],type:'purchase',extras:0,tax:0,discount:0}}
 async function req(base,url,method='GET',data=null,cookie=''){
  const headers={Origin:base};if(cookie)headers.Cookie=cookie;if(data!==null&&!Buffer.isBuffer(data))headers['Content-Type']='application/json';

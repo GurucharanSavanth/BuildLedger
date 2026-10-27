@@ -3,7 +3,7 @@
 Date: 2026-10-11
 
 ## Passed
-- `npm test`: 22 discovered, **21 passed**, 0 failed, 1 MongoDB-only integration test skipped because no disposable replica-set URI configured.
+- `npm test`: **21 passed**, 0 failed in this historical run. Current SQLite-only checks are recorded in TEST_REPORT_SQLITE.md.
 - New no-login SQLite integration: `/api/v1/health`, `/session`, `/state`, `/dashboard` and `/documents` accessible with **no login or cookies** in `AUTH_MODE=local`.
 - New no-login financial write test: an invoice posted through unauthenticated local REST API persists in SQLite and is reflected in dashboard invoiced totals.
 - New local-only security checks: refusal to instantiate no-login server with `0.0.0.0`/private LAN bind; rejects spoofed Host header, proxy indicator headers, and cross-origin writes.
