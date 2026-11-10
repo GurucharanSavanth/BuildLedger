@@ -42,13 +42,19 @@ Owner UI, login and project requests from a public host return 403 until the req
 
 Use a provider only after verifying its actual proxy peers and header behavior. A platform's public outbound IP ranges are not an inbound proxy allowlist. The historical Render recipe below has not been verified with a stable exact peer list; do not bypass the allowlist to make a deployment start.
 
-Static hosting serves the browser-only application; it does not run the SQLite API. See [the deployment guide](GITHUB_DEPLOY_GUIDE_V7.md) for the existing server deployment example.
+Static hosting serves the browser-only application; it does not run the SQLite API. [The earlier deployment guide](GITHUB_DEPLOY_GUIDE_V7.md) is historical and its provider example is not verified against the current proxy contract.
 
 ## Backup and recovery
 
 Create a verified encrypted archive through Backup & Restore and retain a copy outside the application's disk. Test restoration using a disposable installation.
 
+Web archives contain the selected project. Export each project that needs protection; Android native backups contain the complete native ledger. These stores do not synchronize. A second copy on the same disk does not protect against disk loss. Keep dated encrypted copies on a separate device or storage service, retain a known-good earlier generation, and keep the recovery password separately. Verify a disposable restore before deleting older copies.
+
 For a filesystem backup, stop the application cleanly and preserve its entire data directory, including SQLite journal files that remain. Do not copy only the database file while the server is writing. Resume with the same `SQLITE_PATH` and verify health, financial totals and access to original documents.
+
+SQLite's online backup API can also capture committed WAL data while the database is open. The automated durability test verifies this with records, original bytes and idempotency receipts. This is test coverage, not an installed backup scheduler. No automatic replication, off-device backup, retention schedule or failover is configured by this application.
+
+Startup refuses unsupported schema versions, incomplete current schemas and unrecognized existing databases. Legacy migration validates the migrated ledger before committing. Preserve rejected files and use the matching application version or a verified backup; do not delete tables or reset the schema marker to force startup.
 
 ## Verification
 

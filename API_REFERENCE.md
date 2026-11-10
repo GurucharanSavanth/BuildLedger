@@ -1,6 +1,8 @@
-# Authentication update (V5)
+# BuildLedger Web API
 
-## V8 cost classification read APIs
+The Node server exposes `/api/v1`; this reference describes the current SQLite server. Project records and original files are scoped to a project. See [deployment](SQLITE_DEPLOYMENT.md) for authentication and transport requirements.
+
+## Cost classification read APIs
 
 These endpoints use the same authentication rules as other project APIs:
 
@@ -22,7 +24,7 @@ Default `AUTH_MODE=local` on `127.0.0.1` does **not** require login or a session
 
 # BuildLedger Web V4 — Versioned REST API
 
-The **same Node HTTP process** serves the PWA and the authenticated REST API, which is backed by persistent local SQLite by default. No API keys are embedded in frontend JavaScript. Clients use a `HttpOnly; SameSite=Strict` owner session cookie after password login. Cross-site write requests with a mismatched `Origin` are blocked. This is one-owner, one-project architecture, not a multi-tenant system.
+The **same Node HTTP process** serves the PWA and the authenticated REST API, which is backed by persistent local SQLite by default. No API keys are embedded in frontend JavaScript. Clients use a `HttpOnly; SameSite=Strict` owner session cookie after password login. Cross-site write requests with a mismatched `Origin` are blocked. This is a single-owner, multi-project application, not a multi-tenant system.
 
 ## Local setup
 
@@ -43,6 +45,18 @@ Open `http://127.0.0.1:8080`; default local mode needs no login. For a new local
 | POST | `/api/v1/logout` | Invalidates current server session |
 
 Account passwords and session secrets live only in `.env`, never in web assets or ZIP. Sessions expire and are kept in memory (server restart logs out existing sessions).
+
+## Project selection
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/v1/projects` | List projects. |
+| POST | `/api/v1/projects` | Create a project with `{name}`. |
+| PATCH | `/api/v1/projects/{id}` | Update `{name,budget,expectedRev}`; budget is paise. |
+| GET | `/api/v1/projects/{id}/summary` | Review counts, attachment bytes and revision before deletion. |
+| DELETE | `/api/v1/projects/{id}` | Delete with `{expectedRev}`. |
+
+Project reads use the `projectId` query parameter, for example `/api/v1/state?projectId=...`. Typed posts, upload start and commits carry `projectId` in the JSON body. The browser selects a project before reading or writing. Project deletion removes that project's records and originals; verify a backup first.
 
 ## Reading project state
 
@@ -94,7 +108,7 @@ The `key` is an idempotency token. In SQLite server mode, replaying the *same* c
 The API is not designed for general public registration or several independent customers. It has a single admin password and no per-user access controls. HTTP localhost is for personal development only; use HTTPS, a suitable reverse proxy, a protected persistent disk, backups, monitoring and a security review before internet exposure.
 
 
-## V7: hierarchical analytics
+## Hierarchical analytics
 
 `GET /api/v1/analytics/hierarchy` returns the root stage breakdown. Add `level` parameters in order to request deeper nodes:
 

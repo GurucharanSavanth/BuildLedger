@@ -42,8 +42,8 @@ try:
     const openV1=()=>new Promise((resolve,reject)=>{const r=indexedDB.open(name,1);r.onupgradeneeded=()=>{r.result.createObjectStore('main');r.result.createObjectStore('blobs',{keyPath:'id'})};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
     const openCurrent=()=>new Promise((resolve,reject)=>{const r=indexedDB.open(name);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});
     const seed=async(state,file)=>{const d=await openV1(),tx=d.transaction(['main','blobs'],'readwrite');tx.objectStore('main').put(state,'state');tx.objectStore('blobs').put(file);await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error)});d.close()};
-    const removeDb=()=>new Promise((resolve,reject)=>{const r=indexedDB.deleteDatabase(name);r.onsuccess=resolve;r.onerror=()=>reject(r.error);r.onblocked=()=>reject(Error('Unexpected open IndexedDB connection'))});
-    const rawV1=async()=>{const d=await openV1(),tx=d.transaction(['main','blobs'],'readonly'),state=await request(tx.objectStore('main').get('state')),file=await request(tx.objectStore('blobs').get('legacy-original'));d.close();return {version:d.version,state,file,stores:[...d.objectStoreNames]}};
+    const removeDb=()=>new Promise((resolve,reject)=>{const r=indexedDB.deleteDatabase(name),timer=setTimeout(()=>reject(Error('IndexedDB deletion remained blocked')),5000);r.onsuccess=()=>{clearTimeout(timer);resolve()};r.onerror=()=>{clearTimeout(timer);reject(r.error)}});
+    const rawV1=async()=>{const d=await openV1(),tx=d.transaction(['main','blobs'],'readonly'),finished=new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error)}),state=await request(tx.objectStore('main').get('state')),file=await request(tx.objectStore('blobs').get('legacy-original'));await finished;d.close();return {version:d.version,state,file,stores:[...d.objectStoreNames]}};
     (async()=>{
       const finance=await import('./finance.js'),db=await import('./db.js'),bytes=[0,1,2,255,65],blob=new Blob([new Uint8Array(bytes)],{type:'application/octet-stream'});
       const hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer()))].map(x=>x.toString(16).padStart(2,'0')).join('');
@@ -67,6 +67,29 @@ try:
       d=await openCurrent();let tx=d.transaction(['main','blobs'],'readonly');
       assert(await request(tx.objectStore('main').get('state'))===undefined,'Verified migration retained obsolete legacy state');
       assert(await request(tx.objectStore('blobs').count())===0,'Verified migration retained duplicate legacy originals');d.close();
+
+      const unchanged=JSON.stringify(migrated.state);
+      const rejectsWithoutLoss=async(label,action)=>{
+        let rejected=false;try{await action()}catch{rejected=true}
+        assert(rejected,label+' unexpectedly committed');
+        const saved=await db.readSnapshot(legacyId);
+        assert(JSON.stringify(saved.state)===unchanged,label+' changed records or revision');
+        assert(JSON.stringify([...new Uint8Array(await saved.files[0].blob.arrayBuffer())])===JSON.stringify(bytes),label+' changed original bytes');
+      };
+      await rejectsWithoutLoss('Missing new original',()=>db.modify(current=>current.files.push({...state.files[0],id:'missing-original'}),{projectId:legacyId}));
+      await rejectsWithoutLoss('Overwrite existing original',()=>db.modify(()=>{},{projectId:legacyId,newFiles:[{id:'legacy-original',blob}]}));
+      await rejectsWithoutLoss('Delete referenced bytes',()=>db.modify(()=>{},{projectId:legacyId,removeFiles:['legacy-original']}));
+      await rejectsWithoutLoss('Implicit deletion',()=>db.modify(current=>{current.files=[]},{projectId:legacyId}));
+      await rejectsWithoutLoss('Restore missing original',()=>db.replaceAll(state,[],legacyId,7));
+      await rejectsWithoutLoss('Restore wrong original bytes',()=>db.replaceAll(state,[{id:'legacy-original',blob:new Blob(['wrong'])}],legacyId,7));
+      await rejectsWithoutLoss('Restore duplicate originals',()=>db.replaceAll(state,[{id:'legacy-original',blob},{id:'legacy-original',blob}],legacyId,7));
+      await rejectsWithoutLoss('IndexedDB clone failure',()=>db.modify(current=>{current.settings.invalid=()=>{}},{projectId:legacyId}));
+      const {packSnapshot,restoreBackup}=await import('./archive.js');
+      const backup=await packSnapshot(state,[{id:'legacy-original',blob}],'disposable-recovery-password');
+      await restoreBackup(backup,'disposable-recovery-password',()=>{},legacyId);
+      const restored=await db.readSnapshot(legacyId);
+      assert(restored.state.rev===8&&restored.state.bills[0].total===12345,'Verified restore changed exact money or revision');
+      assert(JSON.stringify([...new Uint8Array(await restored.files[0].blob.arrayBuffer())])===JSON.stringify(bytes),'Verified restore changed original bytes');
 
       // Reproduce retained duplicate stores from an already upgraded v2 installation.
       d=await openCurrent();tx=d.transaction(['main','blobs'],'readwrite');tx.objectStore('main').put(state,'state');tx.objectStore('blobs').put({id:'legacy-original',blob});

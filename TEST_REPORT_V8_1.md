@@ -1,5 +1,7 @@
 # BuildLedger 8.1 refinement verification
 
+> Historical document: retained for its original context and evidence. For current setup and maintenance, see [README](README.md); for deployment and recovery, see [SQLite deployment](SQLITE_DEPLOYMENT.md). Historical checks do not establish the status of the current revision.
+
 Changes are based on `9ec716ee0826a014d0d4fe807ad07761d113c2fc`, on `feature/buildledger-refinements`. No owner data, credentials, `.env`, storage schema, authentication or original attachment bytes were changed.
 
 ## Verified behavior

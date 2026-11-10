@@ -1,119 +1,63 @@
-# BuildLedger V8 — Construction Finance & Cost Classification
+# BuildLedger Web
 
-A responsive construction-expense manager with a minimalist interface, persistent local SQLite and HTTP API, instalments, receipts, file storage and a Stage → Substage → Material → Bill drill-down.
+BuildLedger records construction costs, cash payments, supplier advances, commitments, schedules and original documents for one owner across multiple projects. The application provides a browser interface and a Node HTTP API backed by SQLite. Browser-only preview uses IndexedDB. Neither store synchronizes with the other or with the Android application.
 
-Browser document and attachment imports accept up to 25 MB per file. Larger files are rejected before reading their bytes to limit memory use on mobile devices. Existing stored files remain available.
+## Start locally
 
-**Important:** This is tested source code for a **single owner**, not a certified multi-user public financial platform. Before using it for important financial records, complete a real-browser HTTPS acceptance test, security review, and independent transaction reconciliation.
+Install the Node version in `.node-version` (24.21.0), then run from this directory:
 
-## Start here
-
-**GitHub upload and live deployment:** [GITHUB_DEPLOY_GUIDE_V7.md](GITHUB_DEPLOY_GUIDE_V7.md)  
-**Changes:** [CHANGELOG_V8.md](CHANGELOG_V8.md)
-
-**Testing:** [IMPLEMENTATION_REPORT_V8.md](IMPLEMENTATION_REPORT_V8.md)
-**22 October 2026 audit fixes and fresh verification:** [TEST_REPORT_AUDIT_FIXES_2026-10-22.md](TEST_REPORT_AUDIT_FIXES_2026-10-22.md)
-**REST endpoints:** [API_REFERENCE.md](API_REFERENCE.md)
-
-**Database setup:** [SQLITE_DEPLOYMENT.md](SQLITE_DEPLOYMENT.md). The server uses Node's built-in SQLite without an npm database driver. Browser-only preview uses IndexedDB and has independent storage.
-
-### V8 expense classification
-
-Cost heads are independent of work stages. Add Entry supports direct amounts by default, independently classified invoice lines, optional quantity/rate calculations, explicit Sq Ft to SQ conversion and a visible multiplier. The default catalog contains all 19 construction expense heads, 186 subheads and 31 material/service details. Create a cost head, subhead or item from an unmatched category search; the new category is selected immediately and appears in Activity search. Categories can also be renamed, reordered and deactivated without losing their identity.
-
-Explore offers Cost Heads, Work Stages and cost-nature reports. Both hierarchies allocate the same recorded invoices, including freight, tax and discount, exactly once. Payments, supplier advances, agreements and future instalments remain separate. Historical invoices without a classification remain in Unclassified / Legacy until deliberately edited with an audit record.
-
-In Categories, choose Cost Heads or Work Stages. Work categories can also be created from stage selectors and are selected immediately, including on individual invoice lines. Cost catalog changes retain precise audit evidence. Source invoice details and CSV exports show classification, calculation and financial evidence. Optional contract quotations use the same exact calculator; a quoted agreement creates commitments and planned instalments, not invoices.
-
-Schema 1 remains unchanged. IndexedDB and SQLite keep the optional fields in their existing state/record JSON. Encrypted backups preserve the catalog, classifications, audits and original files. Old backups remain readable; opening them does not silently classify their expenses. Downgrading to an older application is not supported for new calculation metadata.
-
-See [CHANGELOG_V8.md](CHANGELOG_V8.md) and [IMPLEMENTATION_REPORT_V8.md](IMPLEMENTATION_REPORT_V8.md) for changes, test commands and remaining limits. Deployment requirements in the V7 guide still apply: static hosting uses only IndexedDB; the full API needs Node, persistent storage, authentication for network access and HTTPS.
-
-### Local installation, no password
-
-Install Node.js **24.21.0** (pinned in `.node-version`, although current core code also supports tested Node 22.16). Extract the project and run:
-
-```bash
-npm run setup
-npm run dev
+```powershell
+npm.cmd run setup
+npm.cmd run dev
 ```
 
-Then visit **http://127.0.0.1:8080**. The app opens without asking for a password in localhost-only mode. On Windows PowerShell, use `npm.cmd run setup` and `npm.cmd run dev` if `npm.ps1` is blocked.
+Open `http://127.0.0.1:8080`. Setup preserves an existing `.env`. Default local mode has no password and accepts loopback access only. On other shells use `npm` in place of `npm.cmd`.
 
-Run the tests:
+For browser-only preview, run `npm.cmd run local`. It uses separate IndexedDB data and does not provide the SQLite API. Do not switch modes expecting records to follow.
 
-```bash
-npm test
-python tests/browser_smoke.py
-python tests/browser_v2.py
-python tests/browser_hierarchy.py
+## Maintain the application
+
+| Area | Responsibility |
+| --- | --- |
+| `app.js`, `index.html`, `styles.css` | Browser screens, forms and interactions. |
+| `finance.js`, `hierarchy.js`, `cost-analytics.js`, `cost-catalog.js` | Financial rules, allocations and classification. |
+| `db.js` | Server and IndexedDB adapters, project scope and unresolved-write recovery. |
+| `archive.js`, `project-export.js` | Encrypted project archive, original-file checks and project export. |
+| `server/http.mjs` | HTTP routes, authentication and transport restrictions. |
+| `server/sqlite-store.mjs` | SQLite transactions, project data, file chunks, revisions and idempotency. |
+| `server/core.mjs`, `server/domain.mjs`, `server/invariants.mjs` | Request, record and file invariants. |
+| `tests/`, `.github/workflows/test.yml` | Node, SQLite/API and disposable browser regression checks. |
+
+Posted money is safe integer paise. Recorded invoice cost, cash paid, advances, commitments and schedules are separate measures. Do not silently classify historical invoices. Preserve source documents, IDs, audit records, revision checks and idempotent write recovery. Browser imports accept files up to 25 MB; the direct API permits up to 250 MiB per original.
+
+## Data protection and deployment
+
+SQLite defaults to `./data/buildledger.sqlite`; the server uses Node's built-in SQLite and requires no database service or npm database driver. Keep the existing `SQLITE_PATH`, `.env` and data directory during upgrades. Never commit private configuration, databases, original uploads or backups.
+
+Create encrypted backups for each project and verify restoration in a disposable installation. Backups are not automatic. See [SQLite deployment and recovery](SQLITE_DEPLOYMENT.md) for WAL, proxy, HTTPS and backup requirements. Network hosting requires owner authentication and HTTPS; password-free mode is loopback-only. Static hosting cannot provide the SQLite API.
+
+## Verification
+
+```powershell
+npm.cmd test
+node --check app.js
 ```
 
-Python browser scripts require `playwright`, Chromium and an appropriate test environment. They use a browser storage stub, *not* a live server/database connection. The Node suite covers a real SQLite-backed API.
+Run `node --check` for every changed JavaScript module. The Node suite exercises financial logic, archives and a disposable SQLite API. For affected browser journeys, install Selenium 4.47.0 and Chrome/ChromeDriver, start `node scripts/browser-test-server.mjs` in a separate terminal, set `BUILDLEDGER_TEST_DISPOSABLE=1`, and run the relevant script, for example:
 
-### New hierarchical analytics
+```powershell
+$env:BUILDLEDGER_TEST_DISPOSABLE = '1'
+python tests/browser_regressions.py
+```
 
-In **Explore → Stage → substage → material**, choose a stage, then a work package/substage, then a material, then the original source invoice. Use the breadcrumb to navigate back. All financial amounts are integer paise and reconcile to the source invoice totals, including proportional allocation of documented tax, freight and discount.
+The server uses a temporary SQLite database, not `.env` or the owner's data. Some journeys also require a preview server on port 8098 or owner-mode settings. Follow the matrix in `.github/workflows/test.yml` and the selected script's guards; never run fixtures against a real ledger. Older smoke, V2 and hierarchy scripts use mock storage and do not establish SQLite acceptance.
 
-Add a custom stage and substage from **Explore → + Categories** or directly from a work stage selector. The selected stage and substage are available immediately and in later entries. Future material purchases can use them through **Add Entry → Bought materials → Work stage / Substage**. Other expenses and wage/service bills also have an optional substage field. Existing records without one remain in `Not specified`; old invoices are never silently rewritten.
+## Reference
 
-This hierarchy shows **recorded bill costs**, not cash outflow or construction progress. Separate summaries track actual money paid, outstanding liabilities and future planned payments. Statistical clustering is not yet implemented, and no fake ML-generated work groupings are displayed.
+- [API reference](API_REFERENCE.md): routes, project scope and write contracts.
+- [SQLite deployment](SQLITE_DEPLOYMENT.md): configuration, security, backup and recovery.
+- [Maintainer instructions](AGENTS.md): invariants, checks and source map.
+- [SQLite test report](TEST_REPORT_SQLITE.md) and dated `TEST_REPORT*.md`: historical results, not proof for a new revision.
+- `CHANGELOG*.md`, `IMPLEMENTATION_REPORT_V8.md` and `GITHUB_DEPLOY_GUIDE_V7.md`: historical release material; current operating guidance above takes precedence.
 
-### Existing functionality retained
-
-- Home: cash paid, bills owed, upcoming payment plans, category breakdown and activity.
-- Add Entry: purchases with optional quantity/unit/rate and direct-amount default, partial/full/unpaid status, labour, other bills, payments, supplier advances, contracts and engineer instalments, notes/timer.
-- Activity: timestamped event history, search, filters and CSV export.
-- Files: original PDF/photo/DWG/DXF and other binary files (browser import cap 25 MB per file; direct API upload cap 250 MiB), metadata, drawing revisions, in-app supported previews, explicit download/share, deleting original with audit.
-- Explore: categorical charts, hierarchy, month-by-month cash paid and payment calendar.
-- Backup & Restore: password-encrypted archive of records and original uploaded files. The browser determines file saving location.
-- SQLite: persistence through `server/http.mjs` and `server/sqlite-store.mjs` with API-level conflict detection, duplicate posting keys and atomic source file updates.
-
-## Essential privacy and storage notes
-
-- `.env` and `data/` are private and ignored by Git. The distributed ZIP **does not contain a live project database**.
-- **Do not overwrite your local `data/` directory or `.env` when upgrading.** Make a verified backup first.
-- For **any public/network deployment**, change to `AUTH_MODE=owner`, configure owner password and cookie secret, and use HTTPS through a proxy whose exact socket peer IPs are listed in `TRUSTED_PROXY_IPS`. Public HTTP and untrusted forwarded HTTPS headers are rejected. See [SQLite deployment](SQLITE_DEPLOYMENT.md#network-deployment) for the proxy contract. Password-free mode explicitly refuses network hosting.
-- A static GitHub Pages deployment cannot provide the Node API and durable SQLite storage. For this full stack, use a Node web service with **persistent disk**; see the deployment guide.
-- The built-in encrypted export is portable but is not an automatic offsite backup. Test restoration periodically.
-- No automatic synchronisation exists between browser-only (`npm run local`) and SQLite server mode. Do not switch storage modes expecting your entries to follow.
-
-## Source layout
-
-| File | Responsibility |
-|---|---|
-| `app.js`, `styles.css`, `index.html` | Frontend screens and interactions |
-| `finance.js` | Exact money, allocation, ledger summaries |
-| `hierarchy.js` | Deterministic Stage → Substage → Material aggregation and source ID tracing |
-| `db.js` | IndexedDB/local or SQLite API adapters |
-| `archive.js` | Encrypted archive and restore logic |
-| `server/http.mjs` | HTTP/static server, authentication and API routes |
-| `server/sqlite-store.mjs` | ACID persistence and original uploaded document bytes |
-| `.github/workflows/test.yml` | Continuous integration on GitHub |
-| `tests/` | Finance, hierarchy, archive and database integration tests |
-
-## Audited entry changes and updated dashboard
-
-Open an entry in Activity and choose **Edit** or **Delete**. Bills, payments, plans, contracts, advance allocations and work logs support these actions. Edits recalculate totals; deletion removes the active entry. The permanent **Change logs** filter shows the previous and new values, including changes to linked balances. Existing change logs cannot be edited or deleted during ordinary saves.
-
-Deleting a bill releases its allocations without deleting cash payments. Deleting a payment reopens bill and plan balances. Deleting a plan or contract keeps payments and removes their schedule links. Attached documents remain in Files; delete an original separately if intended. Changes that would overpay a bill or plan, or link different recipients, are rejected.
-
-The dashboard separates money paid, recorded cost, outstanding bills and upcoming plans. It includes monthly cash charts, budget usage, cost ranking and recent activity. Explore retains exact invoice drill-down and now shows every category in the full ranking.
-
-If a save reply is lost, the browser retains and retries the exact request. **Retry save** verifies an unresolved write after a reload; other writes are blocked until that request is resolved. This temporary recovery request uses browser storage, and server writes require a current browser supporting IndexedDB and Web Locks.
-
-The preview server serves frontend assets only. Replacement restores require a verified original for every file. Encrypted archives preserve the metadata content type, including files the HTTP server downloads as generic binary data.
-
-### Real browser regression checks
-
-CI runs `tests/browser_regressions.py` against a new disposable SQLite database. The test covers lost save replies, failed refreshes, reload recovery, SVG backup restoration, audited Edit/Delete, and desktop/mobile chart layout. It uses Selenium only for testing; no frontend or server dependency was added.
-
-For local testing, install `selenium==4.47.0`, start `node scripts/browser-test-server.mjs`, set `BUILDLEDGER_TEST_DISPOSABLE=1`, and run `python tests/browser_regressions.py`. Optional `BUILDLEDGER_TEST_CHROME` and `BUILDLEDGER_TEST_DRIVER` select installed Chrome and ChromeDriver binaries. Screenshots are written under `.tools/`.
-
-### Faster expense entry and finding records (8.1)
-
-Search **Find a category** to select a complete category path. If nothing matches, create a head, subhead or item from the search prompt; the current parent determines where it is added. New cost and work category names are searchable in Activity. The live preview shows the recorded bill cost separately from money paid and the remaining balance. Optional calculators use the same exact paise helpers as posting; the final review remains required. Possible duplicate invoices produce a review warning, not an automatic merge or deletion.
-
-Activity includes unpaid, unclassified, overdue-plan and settled filters, cost-head selection, date ranges, and matching-record totals. Cost-head matching includes classified agreements and plans; bill totals represent whole matching invoices. Use Explore for individual classified line costs. **Show 75 more** reaches older records, and **Clear filters** resets the view. CSV export still exports all records and is labeled accordingly.
-
-Both browser scripts are regression checks against disposable data: `python tests/browser_regressions.py` and `python tests/browser_costs.py`. Use a newly started disposable server for independent reruns; the cost fixture inserts 155 pagination-test bills and is not intended for a real project database. CI runs the recovery suite followed by the cost suite. No database or encrypted-backup migration is needed for 8.1.
+The application is designed for one owner, not a multi-tenant service. Hosted HTTPS, other browsers and production deployment need their own acceptance checks; a passing local suite does not prove them.

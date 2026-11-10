@@ -1,5 +1,7 @@
 # BuildLedger V8 implementation and verification
 
+> Historical document: retained for its original context and evidence. For current setup and maintenance, see [README](README.md); for deployment and recovery, see [SQLite deployment](SQLITE_DEPLOYMENT.md). Historical checks do not establish the status of the current revision.
+
 ## 1. Architecture and audit
 
 Baseline and initial working-tree HEAD: `033edf8bcf832ba614166bb70544e172ad2df665`. The working tree was clean before implementation. Work is on `feature/buildledger-v8-cost-classification`; main has not been pushed or rewritten.

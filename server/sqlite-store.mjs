@@ -19,15 +19,19 @@ const LEGACY_PROJECT='legacy-project';
 function asInt(n){return Number(n)}
 export class SqliteStore{
  constructor(filename='./data/buildledger.sqlite'){this.filename=path.resolve(filename);this.db=null}
- async start(){await mkdir(path.dirname(this.filename),{recursive:true,mode:0o700});this.db=new DatabaseSync(this.filename,{timeout:5000});
+ async start(){if(this.db)throw Error('Database is already open');await mkdir(path.dirname(this.filename),{recursive:true,mode:0o700});this.db=new DatabaseSync(this.filename,{timeout:5000});
+  try{
   this.db.function('activity_time',{deterministic:true},(kind,json)=>activityTime(activityEvent(kind,JSON.parse(json)).at));
   this.db.function('activity_kind',{deterministic:true},(kind,json)=>activityEvent(kind,JSON.parse(json)).kind||'');
   this.db.function('activity_search',{deterministic:true},(kind,json,bill,payment)=>activitySearch(activityEvent(kind,JSON.parse(json),{bill:bill?JSON.parse(bill):undefined,payment:payment?JSON.parse(payment):undefined})));
   try{await chmod(this.filename,0o600)}catch{}
-  this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
   const exists=name=>Boolean(this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
   const columns=name=>exists(name)?this.db.prepare(`PRAGMA table_info(${name})`).all().map(row=>row.name):[];
-  const legacy=exists('project'),version=exists('schema_info')?Number(this.db.prepare('SELECT version FROM schema_info WHERE id=1').get()?.version||1):0;
+  const legacy=exists('project'),version=exists('schema_info')?this.db.prepare('SELECT version FROM schema_info WHERE id=1').get()?.version:legacy?1:0;
+  if(!Number.isInteger(version)||version<0||version>2||(exists('schema_info')&&version===0))throw Error('Unsupported SQLite schema version; use the matching application version.');
+  if(version===2&&!['projects','records','uploads','assets','file_chunks','operations'].every(exists))throw Error('SQLite schema is incomplete; preserve the database and restore a verified backup.');
+  if(version===0&&this.db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").get())throw Error('Unrecognized SQLite database; preserve it and check SQLITE_PATH.');
+  this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
   this.db.exec('BEGIN IMMEDIATE');
   try{
    this.db.exec(`CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY,rev INTEGER NOT NULL CHECK(rev>=0),schema_version INTEGER NOT NULL,project_json TEXT NOT NULL,settings_json TEXT NOT NULL,archived INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL);
@@ -66,14 +70,18 @@ export class SqliteStore{
     CREATE INDEX IF NOT EXISTS idx_records_plan_payment ON records(project_id,json_extract(doc_json,'$.planId')) WHERE kind='payments';
     CREATE INDEX IF NOT EXISTS idx_assets_project ON assets(project_id);
     INSERT OR IGNORE INTO schema_info(id,version) VALUES(1,2); UPDATE schema_info SET version=2 WHERE id=1;`);
+   if(version===1)for(const project of this.db.prepare('SELECT id FROM projects').all())checkState(this.readSync(project.id));
    this.db.exec('COMMIT');
-  }catch(error){this.db.exec('ROLLBACK');throw error}
+  }catch(error){this.rollback();throw error}
+  }catch(error){await this.close();throw error}
  }
+ // SQLite can roll back automatically on disk-full or I/O errors; keep the original failure.
+ rollback(){try{this.db.exec('ROLLBACK')}catch(error){if(!/no transaction is active/i.test(error.message))throw error}}
  async close(){this.db?.close();this.db=null}
  async health(){try{return this.db?.prepare('PRAGMA quick_check').get()?.quick_check==='ok'}catch{return false}}
  projectId(value){if(value==null){const projects=this.db.prepare("SELECT id FROM projects ORDER BY archived,lower(json_extract(project_json,'$.name')),id").all();if(projects.length===1)return projects[0].id;return null}if(!validId(value))throw failure(400,'Invalid project identifier');return value}
  async listProjects(){return this.db.prepare("SELECT id,json_extract(project_json,'$.name') AS name,coalesce(json_extract(project_json,'$.budget'),0) AS budget,archived,rev FROM projects ORDER BY archived,lower(name),id").all().map(row=>({...row,budget:Number(row.budget),archived:Boolean(row.archived),rev:asInt(row.rev)}))}
- async createProject(name){if(typeof name!=='string'||!name.trim()||name.trim().length>160||/[\u0000-\u001f\u007f]/.test(name))throw failure(422,'Enter a project name of 1 to 160 characters.');const id=randomUUID(),state=startupState();state.project.name=name.trim();this.db.exec('BEGIN IMMEDIATE');try{this.db.prepare('INSERT INTO projects(id,rev,schema_version,project_json,settings_json,created_at) VALUES(?,?,?,?,?,?)').run(id,0,state.schema,JSON.stringify(state.project),JSON.stringify(state.settings),Date.now());this.db.exec('COMMIT')}catch(error){this.db.exec('ROLLBACK');throw error}return {id,name:state.project.name,budget:0,archived:false,rev:0}}
+ async createProject(name){if(typeof name!=='string'||!name.trim()||name.trim().length>160||/[\u0000-\u001f\u007f]/.test(name))throw failure(422,'Enter a project name of 1 to 160 characters.');const id=randomUUID(),state=startupState();state.project.name=name.trim();this.db.exec('BEGIN IMMEDIATE');try{this.db.prepare('INSERT INTO projects(id,rev,schema_version,project_json,settings_json,created_at) VALUES(?,?,?,?,?,?)').run(id,0,state.schema,JSON.stringify(state.project),JSON.stringify(state.settings),Date.now());this.db.exec('COMMIT')}catch(error){this.rollback();throw error}return {id,name:state.project.name,budget:0,archived:false,rev:0}}
  async updateProject(id,{name,budget,expectedRev}){
   id=this.projectId(id);if(!id)throw failure(404,'Project not found');
   if(typeof name!=='string'||!name.trim()||name.trim().length>160||/[\u0000-\u001f\u007f]/.test(name)||!Number.isSafeInteger(budget)||budget<0)throw failure(422,'Invalid project name or budget.');
@@ -87,10 +95,10 @@ export class SqliteStore{
    const position=this.db.prepare("SELECT coalesce(max(position)+1,0) AS position FROM records WHERE project_id=? AND kind='audit'").get(id).position;
    this.db.prepare('INSERT INTO records(project_id,kind,record_id,position,event_date,counterparty,doc_json) VALUES(?,?,?,?,?,?,?)').run(id,'audit',audit.id,position,audit.at,'',JSON.stringify(audit));
    this.db.exec('COMMIT');return {id,name:meta.name,budget,archived:Boolean(row.archived),rev:state.rev};
-  }catch(error){this.db.exec('ROLLBACK');throw error}
+  }catch(error){this.rollback();throw error}
  } projectDeletionSummary(id){id=this.projectId(id);const row=id&&this.db.prepare('SELECT * FROM projects WHERE id=?').get(id);if(!row)throw failure(404,'Project not found');const state=this.readSync(id),recordCount=KINDS.filter(kind=>kind!=='files').reduce((n,kind)=>n+state[kind].length,0);return {projectId:id,projectName:JSON.parse(row.project_json).name,recordCount,attachmentCount:state.files.length,attachmentBytes:state.files.reduce((n,file)=>n+file.size,0),rev:asInt(row.rev)}}
- async deleteProject(id,expectedRev){if(!Number.isSafeInteger(expectedRev)||expectedRev<0)throw failure(422,'Project revision is required.');id=this.projectId(id);if(!id)throw failure(404,'Project not found');this.db.exec('BEGIN IMMEDIATE');try{const summary=this.projectDeletionSummary(id);if(summary.rev!==expectedRev)throw failure(409,'Project changed. Review it again before deleting.','VERSION_CONFLICT');this.db.prepare('DELETE FROM records WHERE project_id=?').run(id);this.db.prepare('DELETE FROM assets WHERE project_id=?').run(id);this.db.prepare('DELETE FROM file_chunks WHERE upload_id IN (SELECT id FROM uploads WHERE project_id=?)').run(id);this.db.prepare('DELETE FROM uploads WHERE project_id=?').run(id);const deleted=this.db.prepare('DELETE FROM projects WHERE id=?').run(id);if(deleted.changes!==1)throw failure(404,'Project not found');this.db.exec('COMMIT');return summary}catch(error){this.db.exec('ROLLBACK');throw error}}
- async read(projectId){if(!this.db)throw failure(503,'Database is not available');projectId=this.projectId(projectId);if(!projectId)return startupState();this.db.exec('BEGIN DEFERRED');try{const out=this.readSync(projectId);this.db.exec('COMMIT');return out}catch(e){this.db.exec('ROLLBACK');throw e}}
+ async deleteProject(id,expectedRev){if(!Number.isSafeInteger(expectedRev)||expectedRev<0)throw failure(422,'Project revision is required.');id=this.projectId(id);if(!id)throw failure(404,'Project not found');this.db.exec('BEGIN IMMEDIATE');try{const summary=this.projectDeletionSummary(id);if(summary.rev!==expectedRev)throw failure(409,'Project changed. Review it again before deleting.','VERSION_CONFLICT');this.db.prepare('DELETE FROM records WHERE project_id=?').run(id);this.db.prepare('DELETE FROM assets WHERE project_id=?').run(id);this.db.prepare('DELETE FROM file_chunks WHERE upload_id IN (SELECT id FROM uploads WHERE project_id=?)').run(id);this.db.prepare('DELETE FROM uploads WHERE project_id=?').run(id);const deleted=this.db.prepare('DELETE FROM projects WHERE id=?').run(id);if(deleted.changes!==1)throw failure(404,'Project not found');this.db.exec('COMMIT');return summary}catch(error){this.rollback();throw error}}
+ async read(projectId){if(!this.db)throw failure(503,'Database is not available');projectId=this.projectId(projectId);if(!projectId)return startupState();this.db.exec('BEGIN DEFERRED');try{const out=this.readSync(projectId);this.db.exec('COMMIT');return out}catch(e){this.rollback();throw e}}
  readSync(projectId){projectId=this.projectId(projectId);if(!projectId)return startupState();const meta=this.db.prepare('SELECT * FROM projects WHERE id=?').get(projectId);if(!meta)throw failure(404,'Project not found');const st={schema:asInt(meta.schema_version),project:JSON.parse(meta.project_json),settings:JSON.parse(meta.settings_json),rev:asInt(meta.rev)};
   for(const k of KINDS)st[k]=[];
   for(const row of this.db.prepare('SELECT kind,doc_json FROM records WHERE project_id=? ORDER BY kind,position').iterate(projectId)){if(st[row.kind])st[row.kind].push(JSON.parse(row.doc_json))}
@@ -117,7 +125,7 @@ export class SqliteStore{
     return event;
    });
    this.db.exec('COMMIT');return {count,items,asOfRevision:meta.rev};
-  }catch(error){this.db.exec('ROLLBACK');throw error}
+  }catch(error){this.rollback();throw error}
  }
  async startUpload(meta,projectId){if(!meta||!validId(meta.id)||!/^[a-f0-9]{64}$/.test(meta.sha256)||!Number.isSafeInteger(meta.size)||meta.size<0||meta.size>MAX_FILE_SIZE)throw failure(400,'Invalid upload metadata');
   projectId=this.projectId(projectId);if(!projectId)throw failure(400,'Choose a project before uploading files');if(!this.db.prepare('SELECT 1 FROM projects WHERE id=?').get(projectId))throw failure(404,'Project not found');
@@ -166,7 +174,7 @@ export class SqliteStore{
    if(affected.changes!==1)throw failure(409,'The project was modified while posting','VERSION_CONFLICT');
    const response={ok:true,rev:state.rev};this.db.prepare('INSERT INTO operations VALUES(?,?,?,?)').run(key,digest,JSON.stringify(response),Date.now());
    this.db.exec('COMMIT');return response;
-  }catch(err){this.db.exec('ROLLBACK');throw err}
+  }catch(err){this.rollback();throw err}
  }
  async asset(id,projectId){if(!validId(id))return null;projectId=this.projectId(projectId);const x=projectId?this.db.prepare('SELECT * FROM assets WHERE project_id=? AND file_id=?').get(projectId,id):null;return x?{id:x.file_id,projectId:x.project_id,uploadId:x.upload_id,name:x.filename,size:Number(x.size_bytes),type:x.mime,sha256:x.sha256}:null}
  async *fileStream(id,projectId,expectedAsset){const meta=expectedAsset||await this.asset(id,projectId);if(!meta)throw failure(404,'Original file not found');
@@ -185,5 +193,5 @@ export class SqliteStore{
    yield* createReadStream(filename);
   }finally{try{await staged?.close()}finally{await rm(dir,{recursive:true,force:true})}}
  }
- async removeOrphans(){const cutoff=Date.now()-72*3600*1000;const expired=this.db.prepare('SELECT id FROM uploads WHERE created_at < ? AND id NOT IN (SELECT upload_id FROM assets)').all(cutoff);this.db.exec('BEGIN IMMEDIATE');try{for(const u of expired){this.db.prepare('DELETE FROM file_chunks WHERE upload_id=?').run(u.id);this.db.prepare('DELETE FROM uploads WHERE id=?').run(u.id)}this.db.exec('COMMIT')}catch(e){this.db.exec('ROLLBACK');throw e}return expired.length}
+ async removeOrphans(){const cutoff=Date.now()-72*3600*1000;const expired=this.db.prepare('SELECT id FROM uploads WHERE created_at < ? AND id NOT IN (SELECT upload_id FROM assets)').all(cutoff);this.db.exec('BEGIN IMMEDIATE');try{for(const u of expired){this.db.prepare('DELETE FROM file_chunks WHERE upload_id=?').run(u.id);this.db.prepare('DELETE FROM uploads WHERE id=?').run(u.id)}this.db.exec('COMMIT')}catch(e){this.rollback();throw e}return expired.length}
 }

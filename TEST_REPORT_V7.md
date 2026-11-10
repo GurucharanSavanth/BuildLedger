@@ -1,5 +1,7 @@
 # BuildLedger V7 verification report
 
+> Historical document: retained for its original context and evidence. For current setup and maintenance, see [README](README.md); for deployment and recovery, see [SQLite deployment](SQLITE_DEPLOYMENT.md). Historical checks do not establish the status of the current revision.
+
 ## Automated regression tests
 
 Run `npm test` from the source root. It covers finance, precise INR arithmetic, split invoicing, partial settlements, idempotency, encrypted backups, source files, SQLite and HTTP API, no-login local access, and hierarchical analytics.

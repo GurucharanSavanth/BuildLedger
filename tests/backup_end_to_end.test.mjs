@@ -1,4 +1,9 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {emptyState} from '../finance.js';import {packSnapshot,unpackSnapshot} from '../archive.js';
 import {createHash} from 'node:crypto';
 const original=new Uint8Array([0,1,2,3,255,140,0,10]);const hash=createHash('sha256').update(original).digest('hex');
+
+test('backup refuses an original whose bytes match the hash but not the recorded size',async()=>{
+ const state=emptyState();state.files=[{id:'size-file',name:'original.bin',type:'application/octet-stream',sha256:hash,size:original.length+1}];
+ await assert.rejects(()=>packSnapshot(state,[{id:'size-file',blob:new Blob([original])}],'recovery-password'),/size mismatch/i);
+});
 test('Encrypted complete backup restores exact bills, schedules, payment allocations and original CAD bytes',async()=>{let state=emptyState();state.bills=[{id:'b1',date:'2026-10-01',recordedAt:'2026-10-01T10:00:00.000Z',total:500000,title:'Sump material',vendor:'A',lines:[{label:'Cement',qty:'1',rate:'5000.00',value:500000}]}];state.payments=[{id:'p1',amount:180000,recordedAt:'2026-10-02T10:00:00Z'}];state.allocations=[{id:'a1',paymentId:'p1',billId:'b1',amount:180000}];state.plans=[{id:'s1',amount:350000,due:'2026-12-01'}];state.files=[{id:'f1',name:'sump-plan.dwg',type:'application/octet-stream',sha256:hash,size:original.length}];let f={id:'f1',blob:new Blob([original],{type:'application/octet-stream'})};const pack=await packSnapshot(state,[f],'this is an example backup passphrase');assert.equal(pack.type,'application/zip');const restored=await unpackSnapshot(pack,'this is an example backup passphrase');assert.deepEqual(restored.state,state);assert.deepEqual(new Uint8Array(await restored.assets[0].blob.arrayBuffer()),original);await assert.rejects(()=>unpackSnapshot(pack,'wrong password 1234'),/password|damaged/i)})

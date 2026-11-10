@@ -1,5 +1,7 @@
 # Web audit fixes — 22 October 2026
 
+> Historical document: retained for its original context and evidence. For current setup and maintenance, see [README](README.md); for deployment and recovery, see [SQLite deployment](SQLITE_DEPLOYMENT.md). Historical checks do not establish the status of the current revision.
+
 Scope: audit findings 12, 16 and 17. Assumed use remains one owner with a large local project history. Existing unrelated SQLite-only cleanup edits were preserved. No private configuration or database was opened.
 
 ## Changes

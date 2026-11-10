@@ -1,5 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {paise,lineValue,billTotal,verifyState,emptyState,breakdown,uid} from '../finance.js';
+import {paise,entryPaise,entryLineTotal,lineValue,billTotal,verifyState,emptyState,breakdown,uid} from '../finance.js';
 
 test('direct rupee amounts require no quantity, rate or unit',()=>{
  const line={mode:'amount',directAmountPaise:paise('10,000.05'),qty:null,rate:null,unit:null,value:paise('10000.05'),label:'12 mm steel',work:'Sump & excavation'};
@@ -13,4 +13,11 @@ test('direct total with optional tax/transport/discount is exact; mixed line mod
 test('direct amount rejects decimals beyond paise, invalid negatives and non-integral saved amount',()=>{
  for(const input of ['23.001','-5','5e3','1,1x'])assert.throws(()=>paise(input));
  assert.throws(()=>lineValue({mode:'amount',directAmountPaise:12.5}));
+});
+test('new amounts reject misplaced commas while historical rates keep their posted value',()=>{
+ for(const input of ['1,2','1.2,3','1,,000','1,234,56'])assert.throws(()=>entryPaise(input));
+ assert.equal(entryPaise('1,00,000.25'),10000025);assert.equal(entryPaise('1,000,000.25'),100000025);
+ assert.throws(()=>entryLineTotal('1','1,2'));
+ const s=emptyState(),line={qty:'1',rate:'1,2',value:1200};s.bills=[{id:'historical',total:1200,lines:[line]}];
+ assert.equal(verifyState(s),true);assert.equal(lineValue(line),1200);
 });

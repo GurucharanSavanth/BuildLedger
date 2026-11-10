@@ -10,7 +10,7 @@ import * as analytics from '../cost-analytics.js';
 const source=(await readFile(new URL('../app.js',import.meta.url),'utf8')).split('\n').filter(line=>!line.startsWith('import ')).join('\n').replace(/start\(\);\s*$/,'');
 function harness(state=finance.emptyState()){
  const elements=new Map(),element=id=>{if(!elements.has(id))elements.set(id,{innerHTML:'',hidden:true,querySelector:()=>({focus(){}})});return elements.get(id)};
- const context=vm.createContext({...finance,...hierarchy,...catalog,...analytics,structuredClone,fixture:state,document:{getElementById:element,activeElement:null},hasPendingWrite:()=>false,ownerAuthentication:()=>false,FormData:class{constructor(form){this.values=form.values}entries(){return Object.entries(this.values)}}});
+ const context=vm.createContext({...finance,...hierarchy,...catalog,...analytics,paise:finance.entryPaise,lineTotal:finance.entryLineTotal,structuredClone,fixture:state,document:{getElementById:element,activeElement:null},hasPendingWrite:()=>false,ownerAuthentication:()=>false,FormData:class{constructor(form){this.values=form.values}entries(){return Object.entries(this.values)}}});
  vm.runInContext(source,context);vm.runInContext('state=fixture',context);
  return {context,element,run:code=>vm.runInContext(code,context)};
 }
@@ -153,6 +153,14 @@ test('purchase preview agrees with posted multi-line calculations and shows each
  h.context.form={values:{extras:'10',tax:'5',discount:'2',payStatus:'partial',paidAmount:'10000'},querySelectorAll:()=>[calculated,direct]};h.run("flow='purchase'");
  const preview=h.run('amountPreview(form)'),posted=finance.billTotal([{mode:'calculated',qty:'100',rate:'38500',unitId:'sq100',quantityUnitId:'sqft',multiplier:'1.5'},{mode:'amount',directAmountPaise:10000}],1000,500,200);
  assert.equal(preview.total,posted);assert.equal(preview.due,posted-1000000);assert.equal(preview.calculations.length,1);assert.match(preview.calculations[0],/multiplier 1\.5/);assert.match(preview.calculations[0],/\/ 100/);
+});
+
+test('purchase review rejects a malformed rate even when preview is bypassed',()=>{
+ const h=harness(),values={'.item-mode':'calculated','.item-qty':'1','.item-rate':'1,2','.item-unit':'kg','.item-quantity-unit':'kg','.item-multiplier':'1'};
+ const row={querySelector:key=>({value:values[key]})};
+ h.context.form={values:{date:'2026-10-11',extras:'0',tax:'0',discount:'0'},querySelectorAll:()=>[row]};h.run("flow='purchase'");
+ assert.throws(()=>h.run('amountPreview(form)'),/valid amount/);
+ assert.throws(()=>h.run('prepareEntry(form)'),/valid amount/);
 });
 
 test('line invoice edit exposes only actionable classification selectors',()=>{

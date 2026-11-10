@@ -1,5 +1,7 @@
 # BuildLedger V7 — Hierarchical analytics and GitHub deployment
 
+> Historical document: retained for its original context and evidence. For current setup and maintenance, see [README](README.md); for deployment and recovery, see [SQLite deployment](SQLITE_DEPLOYMENT.md). Historical checks do not establish the status of the current revision.
+
 ## Features
 - Fully navigable **Stage → Substage → Material → Original source bill** hierarchy, with breadcrumbs, exact cost values and progressive row loading.
 - A category management form for adding custom stages/substages. New categories persist in SQLite project settings and appear in expense entry.
