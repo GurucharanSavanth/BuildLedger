@@ -68,6 +68,29 @@ try:
       assert(await request(tx.objectStore('main').get('state'))===undefined,'Verified migration retained obsolete legacy state');
       assert(await request(tx.objectStore('blobs').count())===0,'Verified migration retained duplicate legacy originals');d.close();
 
+      const unchanged=JSON.stringify(migrated.state);
+      const rejectsWithoutLoss=async(label,action)=>{
+        let rejected=false;try{await action()}catch{rejected=true}
+        assert(rejected,label+' unexpectedly committed');
+        const saved=await db.readSnapshot(legacyId);
+        assert(JSON.stringify(saved.state)===unchanged,label+' changed records or revision');
+        assert(JSON.stringify([...new Uint8Array(await saved.files[0].blob.arrayBuffer())])===JSON.stringify(bytes),label+' changed original bytes');
+      };
+      await rejectsWithoutLoss('Missing new original',()=>db.modify(current=>current.files.push({...state.files[0],id:'missing-original'}),{projectId:legacyId}));
+      await rejectsWithoutLoss('Overwrite existing original',()=>db.modify(()=>{},{projectId:legacyId,newFiles:[{id:'legacy-original',blob}]}));
+      await rejectsWithoutLoss('Delete referenced bytes',()=>db.modify(()=>{},{projectId:legacyId,removeFiles:['legacy-original']}));
+      await rejectsWithoutLoss('Implicit deletion',()=>db.modify(current=>{current.files=[]},{projectId:legacyId}));
+      await rejectsWithoutLoss('Restore missing original',()=>db.replaceAll(state,[],legacyId,7));
+      await rejectsWithoutLoss('Restore wrong original bytes',()=>db.replaceAll(state,[{id:'legacy-original',blob:new Blob(['wrong'])}],legacyId,7));
+      await rejectsWithoutLoss('Restore duplicate originals',()=>db.replaceAll(state,[{id:'legacy-original',blob},{id:'legacy-original',blob}],legacyId,7));
+      await rejectsWithoutLoss('IndexedDB clone failure',()=>db.modify(current=>{current.settings.invalid=()=>{}},{projectId:legacyId}));
+      const {packSnapshot,restoreBackup}=await import('./archive.js');
+      const backup=await packSnapshot(state,[{id:'legacy-original',blob}],'disposable-recovery-password');
+      await restoreBackup(backup,'disposable-recovery-password',()=>{},legacyId);
+      const restored=await db.readSnapshot(legacyId);
+      assert(restored.state.rev===8&&restored.state.bills[0].total===12345,'Verified restore changed exact money or revision');
+      assert(JSON.stringify([...new Uint8Array(await restored.files[0].blob.arrayBuffer())])===JSON.stringify(bytes),'Verified restore changed original bytes');
+
       // Reproduce retained duplicate stores from an already upgraded v2 installation.
       d=await openCurrent();tx=d.transaction(['main','blobs'],'readwrite');tx.objectStore('main').put(state,'state');tx.objectStore('blobs').put({id:'legacy-original',blob});
       await new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error)});d.close();

@@ -31,6 +31,15 @@ async function fixture(run){
 }
 const note=title=>({id:uid(),kind:'note',title,date:'2026-10-24',notes:'Exact retained input',seconds:17});
 
+test('server project edits notify other tabs only after a successful save',()=>fixture(async({db,store,a})=>{
+ const messages=[];globalThis.BroadcastChannel=class{postMessage(message){messages.push(message)}};
+ await db.saveProject(a.id,{name:'Renamed',budget:12345,expectedRev:0});
+ assert.deepEqual(messages,[{updated:true,projectId:a.id}]);
+ assert.equal((await store.read(a.id)).project.budget,12345);
+ await assert.rejects(()=>db.saveProject(a.id,{name:'Stale',budget:999,expectedRev:0}),/changed/i);
+ assert.equal(messages.length,1);assert.equal((await store.read(a.id)).project.budget,12345);
+}));
+
 test('adapter discards project responses received after successful sign-out',()=>fixture(async({db,a})=>{
  const previous=globalThis.fetch;let release;
  globalThis.fetch=async(url,options)=>{const response=await previous(url,options);if(url==='/api/v1/projects')return new Promise(resolve=>{release=()=>resolve(response)});return response};

@@ -55,9 +55,9 @@ test('SQLite projects isolate records and same-named file IDs and delete data at
  }finally{await store.close();await rm(directory,{recursive:true,force:true})}
 });
 
-test('SQLite migration moves the legacy project, records, file metadata, and original chunks into one stable project',async()=>{
+for(const invalid of [false,true])test(invalid?'SQLite invalid legacy migration rolls back schema, records and originals':'SQLite migration moves the legacy project, records, file metadata, and original chunks into one stable project',async()=>{
  const directory=await mkdtemp(path.join(tmpdir(),'buildledger-project-migration-')),filename=path.join(directory,'legacy.sqlite'),legacy=new DatabaseSync(filename),bytes=Buffer.from('legacy original\0bytes'),fileId='legacy_file_001',uploadId='legacy-upload-id',state=emptyState();
- state.project.name='Renovation 2024';state.rev=1;state.audit=[{id:'legacy_audit_01',type:'import',description:'Preserved evidence',linked:'',at:'2024-01-01T10:00:00.000Z'}];state.files=[{id:fileId,name:'duplicate name.pdf',type:'application/pdf',size:bytes.length,sha256:digest(bytes),importedAt:'2024-01-01T10:00:00.000Z'}];
+ state.project.name='Renovation 2024';state.project.budget=invalid?-1:0;state.rev=1;state.audit=[{id:'legacy_audit_01',type:'import',description:'Preserved evidence',linked:'',at:'2024-01-01T10:00:00.000Z'}];state.files=[{id:fileId,name:'duplicate name.pdf',type:'application/pdf',size:bytes.length,sha256:digest(bytes),importedAt:'2024-01-01T10:00:00.000Z'}];
  try{
   legacy.exec(`CREATE TABLE project(id INTEGER PRIMARY KEY CHECK(id=1),rev INTEGER NOT NULL,schema_version INTEGER NOT NULL,project_json TEXT NOT NULL,settings_json TEXT NOT NULL);
    CREATE TABLE records(kind TEXT NOT NULL,record_id TEXT NOT NULL,position INTEGER NOT NULL,event_date TEXT,counterparty TEXT,doc_json TEXT NOT NULL,PRIMARY KEY(kind,record_id));
@@ -73,6 +73,17 @@ test('SQLite migration moves the legacy project, records, file metadata, and ori
   legacy.prepare('INSERT INTO file_chunks VALUES(?,?,?,?)').run(uploadId,0,digest(bytes),bytes);
   legacy.prepare('INSERT INTO assets VALUES(?,?,?,?,?,?,?)').run(fileId,uploadId,'duplicate name.pdf','application/pdf',bytes.length,digest(bytes),1);legacy.close();
   const store=new SqliteStore(filename);try{
+   if(invalid){
+    await assert.rejects(()=>store.start(),/budget/i);assert.equal(store.db,null);
+    const saved=new DatabaseSync(filename);try{
+     assert.equal(saved.prepare('SELECT version FROM schema_info').get().version,1);
+     assert.equal(JSON.parse(saved.prepare('SELECT project_json FROM project').get().project_json).budget,-1);
+     assert.equal(saved.prepare('PRAGMA table_info(records)').all().some(row=>row.name==='project_id'),false);
+     assert.equal(saved.prepare('SELECT count(*) AS n FROM records').get().n,2);
+     assert.deepEqual(Buffer.from(saved.prepare('SELECT data FROM file_chunks').get().data),bytes);
+    }finally{saved.close()}
+    return;
+   }
    await store.start();const projects=await store.listProjects();assert.equal(projects.length,1);assert.equal(projects[0].id,'legacy-project');assert.equal(projects[0].name,'Renovation 2024');
    const migrated=await store.read('legacy-project');assert.equal(migrated.project.name,'Renovation 2024');assert.equal(migrated.audit[0].description,'Preserved evidence');assert.deepEqual(migrated.files,state.files);
    const chunks=[];for await(const chunk of store.fileStream(fileId,'legacy-project'))chunks.push(chunk);assert.deepEqual(Buffer.concat(chunks),bytes);

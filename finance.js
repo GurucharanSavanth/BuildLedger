@@ -2,6 +2,8 @@
 import {costCatalog,validateCostCatalog,validateClassification,seedCostCatalog,UNITS} from './cost-catalog.js';
 export const uid=()=>{if(typeof crypto.randomUUID==='function')return crypto.randomUUID();const r=crypto.getRandomValues(new Uint8Array(16));r[6]=(r[6]&15)|64;r[8]=(r[8]&63)|128;const h=[...r].map(x=>x.toString(16).padStart(2,'0')).join('');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`};
 export function paise(input){const v=String(input??'').trim().replace(/,/g,'');if(!/^\d{1,12}(\.\d{1,2})?$/.test(v))throw Error('Enter a valid amount, with up to two decimal places.');const [a,b='']=v.split('.');const n=BigInt(a)*100n+BigInt((b+'00').slice(0,2));if(n>BigInt(Number.MAX_SAFE_INTEGER))throw Error('The amount is too large.');return Number(n)}
+// Historical invoice rates retain the original parser; new input must have valid grouping.
+export function entryPaise(input){const v=String(input??'').trim();if(!/^(?:\d+|\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3})(?:\.\d{1,2})?$/.test(v))throw Error('Enter a valid amount, with up to two decimal places.');return paise(v)}
 export function qtyScaled(input){const v=String(input??'').trim();if(!/^\d{1,9}(\.\d{1,3})?$/.test(v))throw Error('Enter a quantity with up to three decimal places.');const [a,b='']=v.split('.');return BigInt(a)*1000n+BigInt((b+'000').slice(0,3))}
 export function lineTotal(quantity,unitRate,{multiplier='1',quantityUnitId,unitId}={}){
  for(const id of [unitId,quantityUnitId])if(id&&!UNITS.some(u=>u.id===id))throw Error('Unknown calculation unit.');
@@ -17,6 +19,7 @@ export function lineTotal(quantity,unitRate,{multiplier='1',quantityUnitId,unitI
  const n=(numerator+denominator/2n)/denominator;if(n>BigInt(Number.MAX_SAFE_INTEGER))throw Error('The calculated amount is too large.');return Number(n);
 }
 export function lineValue(l){if(l.mode==='amount'||l.directAmountPaise!==undefined){if(!Number.isSafeInteger(l.directAmountPaise)||l.directAmountPaise<0)throw Error('Invalid direct item amount');return l.directAmountPaise}return lineTotal(l.qty,l.rate,l)}
+export function entryLineTotal(quantity,rate,options){entryPaise(rate);return lineTotal(quantity,rate,options)}
 export function displayMoney(v=0){if(!Number.isSafeInteger(v))throw Error('Unsafe currency value for display');const n=BigInt(v),a=n<0n?-n:n;const whole=a/100n,cents=a%100n;return (n<0n?'−':'')+'₹'+whole.toLocaleString('en-IN')+(cents?'.'+String(cents).padStart(2,'0'):'')}
 export function inputMoney(v=0){if(!Number.isSafeInteger(v))throw Error('Unsafe currency value for input');const n=BigInt(v),a=n<0n?-n:n;return (n<0n?'-':'')+String(a/100n)+'.'+String(a%100n).padStart(2,'0')}
 export function safeInt(n){if(!Number.isSafeInteger(n)||Math.abs(n)>Number.MAX_SAFE_INTEGER)throw Error('Unsafe financial total.');return n}
@@ -180,5 +183,36 @@ export function validateRecordChanges(previous,next,replace=false){
   }
  }
  for(const c of changes){const before=previous[c.kind]?.find(r=>r.id===c.id),after=next[c.kind]?.find(r=>r.id===c.id)||null;if(!postedLists.includes(c.kind)||JSON.stringify(before)!==JSON.stringify(c.before)||JSON.stringify(after)!==JSON.stringify(c.after))throw Error('Audit changes do not match the saved entry.');}
+ return true;
+}
+
+export function validateFileChanges(previous,next,newFiles=[],removeFiles=[],replace=false){
+ if(!Array.isArray(newFiles)||!Array.isArray(removeFiles))throw Error('Invalid file changes');
+ const old=new Map((previous.files||[]).map(f=>[f.id,f]));
+ const wanted=new Map((next.files||[]).map(f=>[f.id,f]));
+ if(old.size!==(previous.files||[]).length||wanted.size!==(next.files||[]).length)throw Error('Duplicate document IDs');
+ const removed=new Set(removeFiles),uploaded=new Map(newFiles.map(x=>[x.id,x]));
+ if(removed.size!==removeFiles.length)throw Error('Repeated document deletion');
+ if(uploaded.size!==newFiles.length)throw Error('Repeated document upload');
+ for(const id of removeFiles){
+  if(!old.has(id))throw Error('Deletion references unknown document');
+  if(wanted.has(id)&&!replace)throw Error('Deletion cannot keep a document record while removing the original bytes');
+ }
+ if(!replace){
+  for(const [id,meta] of old){
+   if(!wanted.has(id)&&!removed.has(id))throw Error('Removed document must be explicitly deleted');
+   const target=wanted.get(id);
+   if(target){
+    if(uploaded.has(id))throw Error('Use a new document ID for each revised original');
+    for(const key of ['sha256','size','type'])if((meta[key]??'')!==(target[key]??''))throw Error('Original document bytes and content-type cannot change: upload a new revision');
+   }
+  }
+ }
+ for(const [id] of wanted){if((replace||!old.has(id))&&!uploaded.has(id))throw Error('New or replacement document has no verified original file');}
+ for(const [id,x] of uploaded){
+  if(typeof id!=='string'||!id)throw Error('Invalid document identifier');
+  if(!wanted.has(id))throw Error('Verified upload has no document entry');
+  if(old.has(id)&&!replace)throw Error('Existing original cannot be overwritten');
+ }
  return true;
 }

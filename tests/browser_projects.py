@@ -99,6 +99,25 @@ with tempfile.TemporaryDirectory(prefix='buildledger-project-download-') as down
         name = 'Duplicate browser project'
         create_project(name)
         first_id = api('/api/v1/projects')['items'][0]['id']
+        original_tab = driver.current_window_handle
+        driver.switch_to.new_window('tab')
+        driver.get(os.environ.get('BUILDLEDGER_TEST_BASE_URL', 'http://127.0.0.1:8099'))
+        wait.until(lambda d: d.find_element(By.ID, 'project-name').text == name)
+        def update_project(project_name, budget):
+            return driver.execute_async_script("""
+              const [id,name,budget,done]=arguments;import('./db.js').then(async db=>{
+                const state=await db.readState(id);await db.saveProject(id,{name,budget,expectedRev:state.rev});done(true)
+              }).catch(e=>done({error:e.message}));
+            """, first_id, project_name, budget)
+        assert update_project('Changed in another tab', 12345) is True
+        driver.switch_to.window(original_tab)
+        wait.until(lambda d: d.find_element(By.ID, 'project-name').text == 'Changed in another tab')
+        assert api('/api/v1/state')['project']['budget'] == 12345
+        driver.switch_to.window(driver.window_handles[-1])
+        assert update_project(name, 0) is True
+        driver.close()
+        driver.switch_to.window(original_tab)
+        wait.until(lambda d: d.find_element(By.ID, 'project-name').text == name)
         add_bill('First project invoice', '123.45')
 
         click('[data-detail^="bill:"]')
