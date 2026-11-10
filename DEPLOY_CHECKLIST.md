@@ -1,5 +1,7 @@
 # WARNING: PASSWORD-FREE LOCAL USE ONLY
 
+> Historical document: retained for its original context and evidence. For current setup and maintenance, see [README](README.md); for deployment and recovery, see [SQLite deployment](SQLITE_DEPLOYMENT.md). Historical checks do not establish the status of the current revision.
+
 V5 defaults to direct entry with `AUTH_MODE=local`, `HOST=127.0.0.1`. **Do not port-forward, reverse-proxy, publish or deploy this configuration to a cloud service.** Anyone with local OS access can read/change the data. Enable owner authentication (or implement production identity/access management) BEFORE network exposure. Review `NO_LOGIN_MODE.md`.
 
 # BuildLedger V4 — pre-release checklist

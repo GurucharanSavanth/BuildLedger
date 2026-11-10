@@ -1,5 +1,7 @@
 # BuildLedger V7 — GitHub + Render deployment guide
 
+> Historical document: retained for its original context and evidence. For current setup and maintenance, see [README](README.md); for deployment and recovery, see [SQLite deployment](SQLITE_DEPLOYMENT.md). Historical checks do not establish the status of the current revision.
+
 **Deployment architecture:** GitHub stores only source code. Render runs the Node HTTP server, REST API and encrypted-session owner sign-in. A paid persistent disk contains the SQLite file and its original document chunks. The full app (frontend+API) is served at a single HTTPS origin.
 
 This is a **single-owner deployment**. It is not yet a multi-account SaaS. Public internet access must never use no-password local mode, and it is not appropriate to claim release certification solely on this test suite.

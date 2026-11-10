@@ -1,5 +1,7 @@
 # SQLite server verification - 22 October 2026
 
+> Historical document: retained for its original context and evidence. For current setup and maintenance, see [README](README.md); for deployment and recovery, see [SQLite deployment](SQLITE_DEPLOYMENT.md). Historical checks do not establish the status of the current revision.
+
 The server uses SQLite through Node's built-in database module. Browser-only mode uses IndexedDB; native Android uses Room over SQLite.
 
 ## Changes

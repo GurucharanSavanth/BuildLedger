@@ -1,5 +1,7 @@
 # BuildLedger V5 — No-Login Local Edition
 
+> Historical document: retained for its original context and evidence. For current setup and maintenance, see [README](README.md); for deployment and recovery, see [SQLite deployment](SQLITE_DEPLOYMENT.md). Historical checks do not establish the status of the current revision.
+
 - Changed default local SQLite server to `AUTH_MODE=local` (dashboard opens directly, no owner password).
 - Updated first-run `npm run setup` to generate a localhost-only `.env` without an account password.
 - Preserved optional `AUTH_MODE=owner` and `npm run setup:secure` for deployments requiring login.

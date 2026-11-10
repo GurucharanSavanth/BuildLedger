@@ -1,5 +1,7 @@
 # BuildLedger V8 — independent expense classification
 
+> Historical document: retained for its original context and evidence. For current setup and maintenance, see [README](README.md); for deployment and recovery, see [SQLite deployment](SQLITE_DEPLOYMENT.md). Historical checks do not establish the status of the current revision.
+
 - Added all 19 requested construction expense heads, 186 subheads and 31 construction material/service details with stable IDs and idempotent seeding.
 - Preserved the independent Stage → Substage → Material → Original Bill hierarchy and the existing five navigation destinations.
 - Added owner category creation, search, rename, ordering, deactivate/reactivate and compact immutable audit evidence. Referenced categories retain their identities.

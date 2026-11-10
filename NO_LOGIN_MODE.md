@@ -1,5 +1,7 @@
 # Password-free BuildLedger — local device only (V5)
 
+> Historical document: retained for its original context and evidence. For current setup and maintenance, see [README](README.md); for deployment and recovery, see [SQLite deployment](SQLITE_DEPLOYMENT.md). Historical checks do not establish the status of the current revision.
+
 **Default:** Opening `http://127.0.0.1:8080` goes directly to the dashboard. There is no sign-in/password prompt when the built-in local SQLite server is running.
 
 ## Fresh setup
