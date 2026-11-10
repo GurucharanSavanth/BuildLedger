@@ -227,7 +227,10 @@ try:
     assert agreement['amount'] == 5775000 and agreement['calculation']['multiplier'] == '1.5'
     assert sum(p['amount'] for p in quoted['plans'] if p.get('contractId') == agreement['id']) == 5775000
     flow('other');driver.execute_script("window.scrollTo({top:0,behavior:'instant'})");driver.save_screenshot(str(artifacts / 'cost-entry-desktop.png'))
-    driver.set_window_size(390, 844);click('#bottom-nav [data-nav=add]');click('[data-flow=other]')
+    driver.set_window_size(390, 844)
+    driver.execute_script("const toast=document.querySelector('#toast');toast.textContent='Test notification';toast.classList.add('show')")
+    assert driver.execute_script("const toast=document.querySelector('#toast');return getComputedStyle(toast).display !== 'none' && toast.getBoundingClientRect().bottom <= document.querySelector('#bottom-nav').getBoundingClientRect().top")
+    click('#bottom-nav [data-nav=add]');click('[data-flow=other]')
     driver.find_element(By.CSS_SELECTOR, '#f-vendor').send_keys(Keys.TAB)
     assert driver.execute_script('return document.activeElement.tagName') in ['INPUT', 'SELECT', 'BUTTON']
     assert driver.execute_script('return document.documentElement.scrollWidth<=window.innerWidth')
